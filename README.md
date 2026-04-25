@@ -12,6 +12,7 @@ A comprehensive Docker learning repository covering commands, Docker Compose, co
 | [04 — Volumes](./04-volumes/) | Union filesystem theory, bind mounts, named volumes, tmpfs, backup patterns |
 | [05 — Networking](./05-networking/) | Bridge, host, overlay networks; container DNS; iptables internals |
 | [06 — Projects](./06-projects/) | Real-world stacks: Nginx, Flask+Postgres, Node+Redis, WordPress, Flask+Mongo+Nginx |
+| [07 — Troubleshooting](./07-troubleshooting/) | Common Docker errors + project-specific fixes for beginners |
 | [Cheatsheets](./cheatsheets/) | Quick-reference cards — commands, Compose, Dockerfile |
 
 ## New to Docker? Start Here

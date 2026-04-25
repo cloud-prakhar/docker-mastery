@@ -36,6 +36,10 @@ Do them in order if you're learning sequentially. Each project introduces one ne
                     └─► 05 (full 3-tier with reverse proxy + network isolation)
 ```
 
+## Troubleshooting Projects
+
+Hit an error? Check [07 — Troubleshooting/project-errors.md](../07-troubleshooting/project-errors.md) for common errors in each project with exact error messages and fixes.
+
 ## How to Use Each Project
 
 Every project folder contains:
