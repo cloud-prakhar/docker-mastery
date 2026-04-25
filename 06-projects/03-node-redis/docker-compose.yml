@@ -1,0 +1,26 @@
+version: "3.8"
+
+services:
+  app:
+    build: ./app
+    ports:
+      - "3000:3000"
+    environment:
+      - REDIS_URL=redis://cache:6379
+      - CACHE_TTL=${CACHE_TTL:-30}
+    depends_on:
+      - cache
+    networks:
+      - app-net
+    restart: unless-stopped
+
+  cache:
+    image: redis:7-alpine
+    command: redis-server --save "" --appendonly no  # no persistence (pure cache)
+    networks:
+      - app-net
+    restart: unless-stopped
+
+networks:
+  app-net:
+    driver: bridge

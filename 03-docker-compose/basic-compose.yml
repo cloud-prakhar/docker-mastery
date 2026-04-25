@@ -1,0 +1,19 @@
+version: "3.8"
+
+# A minimal single-service Compose file.
+# Run with: docker compose -f basic-compose.yml up -d
+
+services:
+  web:
+    image: nginx:alpine
+    container_name: nginx-basic
+    ports:
+      - "8080:80"            # host:container
+    volumes:
+      - ./html:/usr/share/nginx/html:ro   # bind mount (read-only)
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

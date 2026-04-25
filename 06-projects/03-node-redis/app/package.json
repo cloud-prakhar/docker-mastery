@@ -1,0 +1,13 @@
+{
+  "name": "node-redis-demo",
+  "version": "1.0.0",
+  "description": "Express + Redis caching demo",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "redis": "^4.6.13"
+  }
+}

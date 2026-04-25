@@ -1,0 +1,41 @@
+# Claude Code files
+CLAUDE.md
+.claude/
+
+# Memory files
+memory/
+*.memory.md
+MEMORY.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker
+*.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+
+# Node
+node_modules/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Build artifacts
+dist/
+build/
