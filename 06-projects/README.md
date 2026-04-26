@@ -46,12 +46,13 @@ Every project folder contains:
 - `docker-compose.yml` — the stack definition
 - `Dockerfile` (where applicable) — custom image build
 - `Makefile` — shortcuts (`make up`, `make down`, `make logs`)
-- `.env.example` — required environment variables (copy to `.env` before running)
+- `.env.example` — required environment variables, present in projects 02–05 (copy to `.env` before running)
 - `README.md` — project-specific instructions and architecture diagram
 
 ```bash
-cd 01-nginx-static
+# Projects 02–05 require a .env file (Project 01 has no env vars):
 cp .env.example .env     # copy and edit as needed
+
 make up                  # start the stack
 make logs                # follow logs
 make down                # tear down (volumes preserved)

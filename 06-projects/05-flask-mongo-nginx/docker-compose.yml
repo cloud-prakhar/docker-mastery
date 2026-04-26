@@ -1,5 +1,3 @@
-version: "3.8"
-
 # 3-tier stack: Nginx → Flask → MongoDB
 #
 # Network design:
@@ -37,7 +35,7 @@ services:
       - frontend-net
       - backend-net
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:5000/api/health"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/health')"]
       interval: 15s
       timeout: 5s
       retries: 5

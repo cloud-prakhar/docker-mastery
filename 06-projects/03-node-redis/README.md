@@ -26,8 +26,11 @@ make down
 ├── app/
 │   ├── Dockerfile
 │   ├── package.json
+│   ├── package-lock.json   ← required by npm ci for reproducible builds
 │   └── index.js
 ├── docker-compose.yml
 ├── .env.example
 └── Makefile
 ```
+
+> **Note:** The Dockerfile uses `npm ci`, which requires `package-lock.json` to be present in the build context. Always commit this file — do not add it to `.gitignore`.

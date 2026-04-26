@@ -60,6 +60,14 @@ curl -X POST http://localhost/api/books \
 
 Open `http://localhost` in a browser to see the HTML frontend.
 
+> **Port 80 conflict?** If your machine already has a service (e.g. a system nginx or Apache) on port 80, Docker will still start but `localhost` connections will reach the host service, not the container. Change the host port in `docker-compose.yml` to avoid the clash:
+> ```yaml
+> nginx:
+>   ports:
+>     - "8081:80"   # then use http://localhost:8081
+> ```
+> See the [troubleshooting guide](../../07-troubleshooting/project-errors.md#port-80-already-in-use--host-nginx-intercepts-all-requests) for diagnosis steps.
+
 ## API Endpoints
 
 | Method | Path | Description |

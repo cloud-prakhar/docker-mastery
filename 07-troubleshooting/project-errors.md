@@ -4,7 +4,69 @@ Common errors learners hit in each of the `06-projects/` stacks, with exact erro
 
 ---
 
+## All Projects — `version` attribute is obsolete warning
+
+```
+the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+```
+
+**Why it happens:** Docker Compose v2.20+ (and v5+) dropped support for the top-level `version` key. The `version: "3.8"` line is now a no-op and generates this warning on every `docker compose` command.
+
+> The `version:` line has been removed from all project `docker-compose.yml` files in this repo. If you see this warning in your own Compose files, apply the same fix below.
+
+**Fix:** Remove the `version:` line from the top of the file:
+```yaml
+# Before (generates warning):
+version: "3.8"
+
+services:
+  ...
+
+# After (clean):
+services:
+  ...
+```
+
+The `services`, `volumes`, and `networks` keys are still valid — only the version declaration is gone.
+
+---
+
 ## Project 01 — Nginx Static Site
+
+### Healthcheck always "unhealthy" even though the site serves correctly
+
+```
+NAME                    IMAGE          STATUS
+01-nginx-static-web-1   nginx:alpine   Up 2 minutes (unhealthy)
+```
+
+**Why it happens:** The default healthcheck uses `wget -qO- http://localhost`, but inside Docker containers `/etc/hosts` maps `localhost` to `::1` (IPv6) first. BusyBox `wget` (used in Alpine) tries IPv6 and fails because `nginx:alpine` only listens on `0.0.0.0:80` (IPv4). The site serves fine on port 8080 from the host, but the internal healthcheck probe always gets "Connection refused".
+
+```
+/etc/hosts inside container:
+  127.0.0.1  localhost
+  ::1        localhost ip6-localhost  ← BusyBox wget picks this first
+                                          nginx not listening on IPv6 → refused
+```
+
+**Debugging:**
+```bash
+docker inspect 01-nginx-static-web-1 \
+  --format '{{range .State.Health.Log}}{{.Output}}{{end}}'
+# Shows: "wget: can't connect to remote host: Connection refused"
+
+# Confirm the root cause:
+docker exec 01-nginx-static-web-1 wget -qO- http://localhost   # fails
+docker exec 01-nginx-static-web-1 wget -qO- http://127.0.0.1  # works
+```
+
+**Fix:** Use the explicit IPv4 address in the healthcheck:
+```yaml
+healthcheck:
+  test: ["CMD", "wget", "-qO-", "http://127.0.0.1"]   # not http://localhost
+```
+
+---
 
 ### Nginx shows "403 Forbidden"
 
@@ -161,6 +223,46 @@ docker exec -it flask_app python -c "import psycopg2; print('ok')"   # test the 
 
 ## Project 03 — Node.js + Redis
 
+### Build fails: "npm ci can only install with an existing package-lock.json"
+
+```
+npm error code EUSAGE
+npm error
+npm error The `npm ci` command can only install with an existing package-lock.json or
+npm error npm-shrinkwrap.json with lockfileVersion >= 1. Run an install with npm@5 or
+npm error later to generate a package-lock.json file, then try again.
+```
+
+**Why it happens:** The Dockerfile uses `npm ci` for reproducible, fast installs — but `npm ci` requires a `package-lock.json` to be present in the build context. If the lock file was not committed to the repository (or was `.gitignore`d), the build fails.
+
+```
+Dockerfile:
+  COPY package*.json ./       ← copies package.json but NOT package-lock.json
+  RUN npm ci --only=production  ← requires lock file → error
+```
+
+**Fix (preferred — generate and commit the lock file):**
+```bash
+# On the host (Node.js must be installed)
+cd app/
+npm install --package-lock-only   # generates lock file without installing node_modules
+# Then commit package-lock.json
+git add package-lock.json
+git commit -m "add package-lock.json for reproducible builds"
+```
+
+**Fix (alternative — switch to `npm install` in the Dockerfile):**
+```dockerfile
+# In Dockerfile, replace:
+RUN npm ci --only=production
+# with:
+RUN npm install --omit=dev
+```
+
+> Note: `npm install` re-resolves versions each time and is slower; prefer committing the lock file to keep builds deterministic.
+
+---
+
 ### Node exits: "Error: connect ECONNREFUSED 127.0.0.1:6379"
 
 ```
@@ -294,6 +396,103 @@ UPDATE wp_options SET option_value='http://localhost:8080' WHERE option_name IN 
 ---
 
 ## Project 05 — Flask + MongoDB + Nginx
+
+### Flask app stays "unhealthy": "wget: executable file not found"
+
+```
+dependency failed to start: container 05-flask-mongo-nginx-app-1 is unhealthy
+```
+
+When inspecting the healthcheck log:
+```
+OCI runtime exec failed: exec failed: unable to start container process:
+exec: "wget": executable file not found in $PATH
+```
+
+**Why it happens:** The Flask app runs inside `python:3.12-slim`, which is a minimal Debian image with no networking tools (`wget`, `curl`) installed. The `docker-compose.yml` healthcheck that calls `wget` therefore fails immediately.
+
+```
+python:3.12-slim runtime image:
+  ✓  python3, pip
+  ✗  wget  (not installed — use Python's stdlib instead)
+  ✗  curl  (not installed)
+```
+
+**Fix:** Replace the `wget` healthcheck with a Python one-liner that uses the built-in `urllib`:
+```yaml
+healthcheck:
+  test:
+    - "CMD"
+    - "python3"
+    - "-c"
+    - "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/health')"
+  interval: 15s
+  timeout: 5s
+  retries: 5
+  start_period: 10s
+```
+
+Alternatively, install `curl` in the Dockerfile runtime stage:
+```dockerfile
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+```
+
+---
+
+### Port 80 already in use — host nginx intercepts all requests
+
+```
+# docker compose up succeeds — no error
+# but every curl returns:
+<html><head><title>404 Not Found</title></head>
+<body><center><h1>404 Not Found</h1></center>
+<hr><center>nginx/1.24.0 (Ubuntu)</center>   ← host nginx, not the container!
+```
+
+**Why it happens:** This project binds to host port 80 by default. If your machine already has a system nginx (or any other service) listening on port 80, Docker Compose v2.20+ (which uses iptables NAT instead of docker-proxy) may not block start-up, but outbound `localhost:80` connections still reach the host process — not the container.
+
+```
+Host: system nginx listening on 0.0.0.0:80 (started before Docker)
+      │
+      ▼
+curl http://localhost:80  ──► loopback interface ──► host nginx (PID 218)
+                                                       responds with its own 404
+                                NOT routed to Docker container
+```
+
+**Debugging:**
+```bash
+# Check what's listening on port 80
+ss -tlnp | grep ':80'
+
+# Check which nginx version responds
+curl -s -I http://localhost | grep Server
+# If "nginx/1.24.0 (Ubuntu)" → host process, not the container
+
+# Confirm the container works in isolation
+docker inspect 05-flask-mongo-nginx-nginx-1 | grep -A2 Ports
+docker exec 05-flask-mongo-nginx-nginx-1 wget -qO- http://127.0.0.1/api/health
+```
+
+**Fix — use a different host port:**
+```yaml
+# docker-compose.yml
+services:
+  nginx:
+    ports:
+      - "8081:80"   # change from "80:80"
+```
+
+Then access the app at `http://localhost:8081`.
+
+**Fix — stop the host nginx (if you own it):**
+```bash
+sudo systemctl stop nginx
+sudo systemctl disable nginx   # prevent it starting on next boot
+docker compose restart nginx
+```
+
+---
 
 ### Nginx returns "502 Bad Gateway"
 
