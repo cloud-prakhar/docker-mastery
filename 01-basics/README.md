@@ -100,6 +100,7 @@ docker run -p 8080:8080 my-app
 - [dockerfile-reference.md](./dockerfile-reference.md) — every Dockerfile instruction explained
 - [image-layers.md](./image-layers.md) — what layers are, how caching works, overlay2, copy-on-write, and best practices
 - [docker-hub-and-registries.md](./docker-hub-and-registries.md) — Docker Hub, image naming, tags, pushing your first image, private registries, rate limits
+- [build-and-push-guide.md](./build-and-push-guide.md) — complete workflow: lightweight Dockerfile, multi-stage build, tagging with version + latest, pushing to Docker Hub
 - [virtualization-vs-containers.md](./virtualization-vs-containers.md) — what hypervisors are, Type 1 vs Type 2, how containers differ (with diagrams)
 - [devops-roadmap.md](./devops-roadmap.md) — where Docker fits in the DevOps career path and skill map
 

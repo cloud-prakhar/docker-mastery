@@ -22,7 +22,8 @@ If you're coming from zero, read these first before touching a command:
 1. [What is a hypervisor and how Docker differs](./01-basics/virtualization-vs-containers.md) — the theory behind containers
 2. [Your first container — step by step](./01-basics/first-container.md) — hands-on from zero
 3. [Docker Hub and registries](./01-basics/docker-hub-and-registries.md) — where images come from and how to publish your own
-4. [Docker in the DevOps roadmap](./01-basics/devops-roadmap.md) — where this fits in your career
+4. [Build and push a lightweight image](./01-basics/build-and-push-guide.md) — create a minimal image, tag it, and push to Docker Hub step by step
+5. [Docker in the DevOps roadmap](./01-basics/devops-roadmap.md) — where this fits in your career
 
 ## Prerequisites
 
