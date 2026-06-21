@@ -8,22 +8,17 @@ To understand *why* volumes are necessary, you need to understand how Docker bui
 
 Docker images are made of **read-only layers** stacked on top of each other (one per Dockerfile instruction). When you start a container, Docker adds one extra **thin writable layer** on top:
 
+```mermaid
+flowchart TB
+    W["Writable layer (container only)<br/>your process writes here — e.g. /var/log/nginx/access.log<br/>⚠ DELETED when the container is removed"]
+    L3["Image layer 3: COPY ./html  (read-only)"]
+    L2["Image layer 2: RUN apt-get nginx  (read-only)"]
+    L1["Image layer 1: FROM ubuntu:22.04  (read-only)"]
+    W --> L3 --> L2 --> L1
+    style W fill:#ffe9d9
 ```
-Container filesystem (what the running process sees):
 
-┌─────────────────────────────────────┐
-│  Writable layer  (container only)   │  ← your process writes here
-│  e.g. /var/log/nginx/access.log     │    DELETED when container is removed
-├─────────────────────────────────────┤
-│  Image layer 3: COPY ./html         │  ← read-only
-├─────────────────────────────────────┤
-│  Image layer 2: RUN apt-get nginx   │  ← read-only
-├─────────────────────────────────────┤
-│  Image layer 1: FROM ubuntu:22.04   │  ← read-only
-└─────────────────────────────────────┘
-
-This stack is managed by the "overlay2" storage driver (default on Linux).
-```
+This stack — what the running process sees as one filesystem — is managed by the **overlay2** storage driver (the default on Linux).
 
 When you write a file that exists in a lower read-only layer, the driver **copies it up** to the writable layer before writing (copy-on-write). The original layer is untouched.
 
@@ -31,33 +26,35 @@ When you write a file that exists in a lower read-only layer, the driver **copie
 
 **The solution:** mount storage that lives *outside* the container's writable layer — that's what volumes and bind mounts do.
 
+```mermaid
+flowchart TB
+    subgraph C["Container"]
+        W["Writable layer (thin, ephemeral)"]
+        M["/var/lib/postgresql/data<br/>(mount point)"]
+    end
+    V["Named Volume (on host disk)<br/>bypasses the writable layer entirely<br/>managed by Docker · survives docker rm"]
+    M -->|mounted from| V
+    style V fill:#d9f2ff
 ```
-With a volume:
 
-┌─────────────────────────────────────┐
-│  Writable layer  (thin, ephemeral)  │
-├─────────────────────────────────────┤  ◄── /var/lib/postgresql/data
-│  Named Volume (on host disk)        │      bypasses writable layer entirely
-│  survives docker rm                 │      managed by Docker
-└─────────────────────────────────────┘
-```
+Writes to `/var/lib/postgresql/data` go straight to the volume, not the throwaway writable layer — so the data survives even after the container is deleted.
 
 > Related: [Image layers — full guide](../01-basics/image-layers.md) — covers overlay2, copy-on-write, and the writable layer in detail.
 
 ## Three Types of Mounts
 
+```mermaid
+flowchart LR
+    H["Host"] --> B["Bind Mount<br/>/my/host/path ↔ /container/path<br/>(you control the exact path)"]
+    H --> V["Named Volume<br/>Docker manages the location<br/>(/var/lib/docker/volumes/NAME)"]
+    R["RAM"] --> T["tmpfs Mount<br/>RAM only, never written to disk<br/>(ephemeral — secrets / temp data)"]
 ```
-Host filesystem
-│
-├── Bind Mount  ──────►  /my/host/path  ↔  /container/path
-│   (you control exact path)
-│
-├── Named Volume ─────►  Docker manages storage location
-│   (Docker manages location, /var/lib/docker/volumes/NAME)
-│
-└── tmpfs Mount ──────►  RAM only, never written to disk
-    (ephemeral, for secrets/temp data)
-```
+
+| Mount type | Where it lives | Best for |
+|---|---|---|
+| **Bind mount** | A path you choose on the host | Development — live-reloading code, injecting config |
+| **Named volume** | Docker-managed host storage | Databases and other persistent data |
+| **tmpfs** | Host RAM (never on disk) | Secrets and temp data that must not persist |
 
 ## Named Volumes (recommended for databases)
 

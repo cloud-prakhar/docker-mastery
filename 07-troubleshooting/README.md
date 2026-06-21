@@ -28,14 +28,11 @@ Is the docker daemon running?
 
 **Why it happens:** The Docker daemon is stopped, or you're not in the `docker` group.
 
-```
-Your shell
-    │
-    ▼
-/var/run/docker.sock  ←── daemon writes this socket file
-    │
-    ▼
-Docker daemon (dockerd)   ← NOT running → socket missing → error
+```mermaid
+flowchart TB
+    S["Your shell"] --> SOCK["/var/run/docker.sock<br/>(socket file the daemon writes)"]
+    SOCK --> D["Docker daemon (dockerd)<br/>NOT running → socket missing → error"]
+    style D fill:#ffd9d9
 ```
 
 **Fix:**
@@ -189,15 +186,12 @@ docker ps -a
 **Why it happens:** The container's main process crashed or finished. A container lives only as long as its PID 1.
 
 **Debugging flow:**
-```
-docker run myapp  →  exits immediately
-        │
-        ▼
-docker logs <container-id>     ← read the actual error message
-        │
-        ▼
-docker run -it myapp sh        ← launch shell instead of the app
-                               ← explore the filesystem / run the app manually
+```mermaid
+flowchart TB
+    A["docker run myapp → exits immediately"]
+    B["docker logs <container-id><br/>read the actual error message"]
+    C["docker run -it myapp sh<br/>launch a shell instead of the app,<br/>explore the filesystem / run the app manually"]
+    A --> B --> C
 ```
 
 **Common root causes and fixes:**
@@ -264,12 +258,13 @@ flask_app | requests.exceptions.ConnectionError:
 
 **Why it happens:** Either the containers are on different networks, or the service name is wrong.
 
-```
-  flask_app ──► "postgres" ──► DNS lookup inside Docker
-                                     │
-                         Same Compose project? → works
-                         Different networks?  → fails
-                         Wrong service name?  → fails
+```mermaid
+flowchart TB
+    F["flask_app connects to host 'postgres'"] --> DNS["DNS lookup inside Docker"]
+    DNS --> Q1{"Same Compose project / network?"}
+    Q1 -->|yes, correct service name| OK["✓ resolves → works"]
+    Q1 -->|different networks| F1["✗ fails"]
+    Q1 -->|wrong service name| F2["✗ fails"]
 ```
 
 **Debugging:**
@@ -305,15 +300,13 @@ networks:
 
 **Why it happens:** The container is up, but the process inside hasn't finished starting yet (especially databases).
 
-```
-postgres container starts
-    │
-    ├── 0s: postgres process launches
-    ├── 2s: initialising database files...
-    ├── 5s: running init SQL scripts...
-    └── 8s: ✓ ready to accept connections
-
-flask_app starts at 1s  ──► tries to connect ──► refused (DB not ready yet)
+```mermaid
+flowchart TB
+    subgraph PG["postgres container startup timeline"]
+        T0["0s: postgres process launches"] --> T2["2s: initialising database files…"] --> T5["5s: running init SQL scripts…"] --> T8["8s: ✓ ready to accept connections"]
+    end
+    FA["flask_app starts at 1s → tries to connect"] -->|"DB not ready yet"| REF["✗ connection refused"]
+    style REF fill:#ffd9d9
 ```
 
 **Fix:** Use a healthcheck + `depends_on` condition in Compose:

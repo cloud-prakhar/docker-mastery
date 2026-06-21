@@ -70,15 +70,22 @@ docker run --rm -it ubuntu bash   # interactive throwaway shell
 
 ## What Just Happened?
 
-```
-docker run -d -p 8080:80 nginx:alpine
-     │         │              │
-     │         │              └─ Image to use
-     │         └─ Port mapping (host:container)
-     └─ Run in background
+The command `docker run -d -p 8080:80 nginx:alpine` breaks down as:
 
-Docker checks local cache for the image → pulls from Hub if missing
-→ creates a container from the image
-→ starts the container process (nginx)
-→ maps port 8080 on your machine to port 80 inside the container
+| Part | Meaning |
+|---|---|
+| `-d` | run in the background (detached) |
+| `-p 8080:80` | port mapping (host:container) |
+| `nginx:alpine` | image to use |
+
+And here's what Docker does behind the scenes:
+
+```mermaid
+flowchart TB
+    A["docker run -d -p 8080:80 nginx:alpine"] --> B{"image in local cache?"}
+    B -->|no| P["pull from Docker Hub"]
+    B -->|yes| C["create a container from the image"]
+    P --> C
+    C --> D["start the container process (nginx)"]
+    D --> E["map host port 8080 → container port 80"]
 ```

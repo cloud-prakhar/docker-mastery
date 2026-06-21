@@ -6,21 +6,14 @@ Essential Docker CLI commands grouped by what they operate on.
 
 Every `docker` command you type travels the same path:
 
-```
-Your terminal
-     │
-     │  docker run nginx
-     ▼
-Docker CLI (client)
-     │
-     │  REST API call over /var/run/docker.sock (Unix socket)
-     ▼
-Docker Daemon (dockerd)   ← the background service doing the real work
-     │
-     ├── checks image cache
-     ├── pulls from registry if needed
-     ├── calls containerd → runc
-     └── runc creates the container using Linux namespaces + cgroups
+```mermaid
+flowchart TB
+    T["Your terminal"] -->|"docker run nginx"| CLI["Docker CLI (client)"]
+    CLI -->|"REST API over /var/run/docker.sock (Unix socket)"| D["Docker Daemon (dockerd)<br/>the background service doing the real work"]
+    D --> A["checks image cache"]
+    D --> B["pulls from registry if needed"]
+    D --> C["calls containerd → runc"]
+    C --> R["runc creates the container using<br/>Linux namespaces + cgroups"]
 ```
 
 The CLI itself does almost nothing — it's a thin wrapper that serialises your flags into an API call and prints the response. This is why `docker -H tcp://remote-host:2376 ps` lets you manage a remote Docker host from your local terminal.
@@ -29,14 +22,14 @@ The CLI itself does almost nothing — it's a thin wrapper that serialises your 
 
 ## Command Map
 
-```
-docker
-├── container   (run, stop, rm, exec, logs, inspect, cp …)
-├── image       (build, pull, push, tag, rmi, inspect …)
-├── volume      (create, ls, rm, inspect, prune …)
-├── network     (create, ls, rm, connect, disconnect …)
-├── compose     (up, down, ps, logs, exec, build …)
-└── system      (df, prune, info, events …)
+```mermaid
+flowchart LR
+    D["docker"] --> CON["container<br/>run, stop, rm, exec, logs, inspect, cp …"]
+    D --> IMG["image<br/>build, pull, push, tag, rmi, inspect …"]
+    D --> VOL["volume<br/>create, ls, rm, inspect, prune …"]
+    D --> NET["network<br/>create, ls, rm, connect, disconnect …"]
+    D --> CMP["compose<br/>up, down, ps, logs, exec, build …"]
+    D --> SYS["system<br/>df, prune, info, events …"]
 ```
 
 Most top-level shortcuts exist for convenience:

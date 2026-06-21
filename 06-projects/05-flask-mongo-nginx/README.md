@@ -4,36 +4,23 @@ A production-pattern 3-tier web application: **Nginx** as a reverse proxy in fro
 
 ## Architecture
 
+```mermaid
+flowchart TB
+    U["Internet / Browser"] -->|":80"| N
+    subgraph FE["frontend-net"]
+        N["Nginx — reverse proxy (port 80 public)<br/>terminates HTTP · rate limiting · serves static files"]
+    end
+    N -->|":5000 (internal only)"| F
+    subgraph BE["backend-net (internal: true, no internet)"]
+        F["Flask App — business logic<br/>REST API · not exposed externally · talks to MongoDB"]
+        M["MongoDB — data layer<br/>not exposed externally · persisted via named volume"]
+        F -->|":27017 (internal only)"| M
+    end
 ```
-                  Internet / Browser
-                         │
-                         │ :80
-                         ▼
-              ┌─────────────────────┐
-              │        Nginx        │  ← Reverse proxy
-              │   (port 80 public)  │    Terminates HTTP
-              │                     │    Rate limiting
-              │                     │    Serves static files
-              └─────────┬───────────┘
-                        │  :5000 (internal only)
-                        ▼
-              ┌─────────────────────┐
-              │     Flask App       │  ← Business logic
-              │   (not exposed      │    REST API
-              │    externally)      │    Talks to MongoDB
-              └─────────┬───────────┘
-                        │  :27017 (internal only)
-                        ▼
-              ┌─────────────────────┐
-              │      MongoDB        │  ← Data layer
-              │   (not exposed      │    Persisted via named volume
-              │    externally)      │
-              └─────────────────────┘
 
-Networks:
-  frontend-net  →  Nginx ↔ Flask
-  backend-net   →  Flask ↔ MongoDB  (internal: true, no internet)
-```
+**Networks:**
+- `frontend-net` — Nginx ↔ Flask
+- `backend-net` — Flask ↔ MongoDB (`internal: true`, no internet access)
 
 ## What You'll Learn
 

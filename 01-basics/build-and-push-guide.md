@@ -8,20 +8,13 @@
 
 Every byte in your image is a byte you download at deploy time, a byte stored in the registry, and a larger attack surface for vulnerabilities.
 
-```
-Large image (node:20)        Lightweight image (node:20-alpine)
-────────────────────         ──────────────────────────────────
-~1.1 GB on disk              ~160 MB on disk
-Includes: full Debian OS     Includes: Alpine Linux (~5 MB base)
-          docs, man pages               only what the app needs
-          build tools
-          package manager cache
-
-Effect on production:
-  Slower cold starts          Faster cold starts
-  More CVEs to patch          Smaller attack surface
-  Larger registry storage     ~7× less registry storage
-```
+| | Large image (`node:20`) | Lightweight image (`node:20-alpine`) |
+|---|---|---|
+| Size on disk | ~1.1 GB | ~160 MB |
+| Contains | full Debian OS, docs, man pages, build tools, package cache | Alpine Linux (~5 MB base) + only what the app needs |
+| Cold starts | slower | faster |
+| CVEs to patch | more | smaller attack surface |
+| Registry storage | large | ~7× less |
 
 The standard choice for lightweight images is **Alpine Linux** — a minimal distribution built on musl libc and BusyBox. Most official Docker images offer an `-alpine` variant.
 
@@ -117,21 +110,21 @@ CMD ["python", "app.py"]
 
 ### Why Multi-Stage?
 
+**Single-stage** drags the compiler into production; **multi-stage** leaves it behind:
+
+```mermaid
+flowchart LR
+    subgraph Single["Single-stage → ~85 MB"]
+        SS["python:3.12-alpine<br/>+ gcc, musl-dev (build tools)<br/>+ flask (compiled)<br/>+ your app<br/><br/>⚠ gcc & build tools shipped<br/>but never used at runtime"]
+    end
+    subgraph Multi["Multi-stage → ~28 MB"]
+        B["Stage 1 (builder)<br/>python:3.12-alpine<br/>+ gcc, musl-dev<br/>+ flask compiled"]
+        F["Stage 2 (final)<br/>python:3.12-alpine<br/>+ flask only<br/>+ your app"]
+        B -->|"COPY --from<br/>(only the packages)"| F
+    end
 ```
-Single-stage build:                 Multi-stage build:
-┌──────────────────────────┐        ┌────────────────────┐  ┌────────────────┐
-│  python:3.12-alpine      │        │  Stage 1 (builder) │  │ Stage 2 (final)│
-│  + gcc, musl-dev         │        │  python:3.12-alpine│  │ python:3.12-   │
-│  + flask (compiled)      │        │  + gcc, musl-dev   │  │  alpine        │
-│  + your app              │        │  + flask compiled  │  │ + flask (only) │
-│                          │        └────────────────────┘  │ + your app     │
-│  Final image includes    │                ↓ COPY --from   └────────────────┘
-│  gcc and build tools     │        Only the installed packages
-│  you don't need          │        move into the final image.
-│  at runtime              │        gcc stays behind.
-└──────────────────────────┘
-~85 MB                              ~28 MB
-```
+
+Only the installed packages move into the final image — `gcc` and the build tools stay behind in the discarded builder stage.
 
 ### Layer Order Matters for Build Cache
 
@@ -168,11 +161,10 @@ venv/
 .venv/
 ```
 
-```
-Without .dockerignore:                With .dockerignore:
-Build context sent to daemon: 45 MB   Build context sent to daemon: 4 KB
-(includes .git, venv, logs)           (only app.py, requirements.txt, Dockerfile)
-```
+| | Build context sent to daemon |
+|---|---|
+| **Without** `.dockerignore` | 45 MB (includes `.git`, `venv`, logs) |
+| **With** `.dockerignore` | 4 KB (only `app.py`, `requirements.txt`, `Dockerfile`) |
 
 ---
 
@@ -184,17 +176,16 @@ Navigate to your project directory (where the `Dockerfile` lives):
 docker build -t cloudprakhargupta/docker-app-images:v1.0.0 .
 ```
 
-**Breaking down the command:**
+**Breaking down the command** `docker build -t cloudprakhargupta/docker-app-images:v1.0.0 .`
 
-```
-docker build
-  -t cloudprakhargupta/docker-app-images:v1.0.0
-  │   │                 │                 │
-  │   │                 │                 └── Tag (version)
-  │   │                 └── Repository name
-  │   └── Docker Hub namespace (your username)
-  └── Build context (current directory)
-```
+| Part | Meaning |
+|---|---|
+| `docker build` | the build command |
+| `-t` | tag the resulting image |
+| `cloudprakhargupta` | Docker Hub namespace (your username) |
+| `docker-app-images` | repository name |
+| `v1.0.0` | tag (version) |
+| `.` | build context (the current directory) |
 
 **Expected output:**
 
@@ -241,17 +232,19 @@ Every image push should carry **two tags**:
 | **Version tag** | Pinned, immutable reference — always points to this exact build | `v1.0.0` |
 | **`latest`** | Moving pointer to the most recent stable release — what users get when they don't specify a tag | `latest` |
 
-```
-Docker Hub — cloudprakhargupta/docker-app-images
+Tags are just labels pointing at an image digest. `latest` *moves*; version tags stay put:
 
-v1.0.0 ──────────────────────────────────────► image sha256:a1b2c3... (your first build)
-latest ──────────────────────────────────────► image sha256:a1b2c3... (same image for now)
-
-After you build v1.1.0:
-
-v1.0.0 ──────────────────────────────────────► image sha256:a1b2c3... (unchanged)
-v1.1.0 ──────────────────────────────────────► image sha256:f7g8h9... (new build)
-latest ──────────────────────────────────────► image sha256:f7g8h9... (moved forward)
+```mermaid
+flowchart LR
+    subgraph After1["At first release"]
+        T1["v1.0.0"] --> I1["sha256:a1b2c3…<br/>(first build)"]
+        L1["latest"] --> I1
+    end
+    subgraph After2["After building v1.1.0"]
+        T2["v1.0.0"] --> I2["sha256:a1b2c3…<br/>(unchanged)"]
+        T3["v1.1.0"] --> I3["sha256:f7g8h9…<br/>(new build)"]
+        L2["latest"] --> I3
+    end
 ```
 
 Tags are **mutable labels** — `latest` moves with each release while version tags stay fixed, so users can always roll back to `v1.0.0` if the latest is broken.
@@ -353,38 +346,13 @@ docker push cloudprakhargupta/docker-app-images:latest
 
 ## 9. Full Workflow Diagram
 
-```
-Local Machine                                Docker Hub
-─────────────────────────────────            ─────────────────────────────────────────
-                                             cloudprakhargupta/docker-app-images
-my-app/
-├── app.py
-├── requirements.txt
-├── Dockerfile
-└── .dockerignore
-        │
-        │  docker build -t cloudprakhargupta/docker-app-images:v1.0.0 .
-        ▼
-  ┌─────────────────┐
-  │ local image     │
-  │ v1.0.0 (28 MB)  │
-  └────────┬────────┘
-           │
-           │  docker tag ... :latest
-           ▼
-  ┌─────────────────┐
-  │ local image     │
-  │ v1.0.0 (28 MB)  │
-  │ latest  (28 MB) │ ← same layers, two labels
-  └────────┬────────┘
-           │
-           │  docker login
-           │  docker push :v1.0.0
-           ├──────────────────────────────────► :v1.0.0 ──► sha256:abc123 (28 MB)
-           │
-           │  docker push :latest
-           └──────────────────────────────────► :latest  ──► sha256:abc123 (same)
-                                                             (no re-upload, manifest only)
+```mermaid
+flowchart TB
+    SRC["my-app/<br/>app.py · requirements.txt · Dockerfile · .dockerignore"]
+    SRC -->|"docker build -t …:v1.0.0 ."| IMG1["local image<br/>v1.0.0 (28 MB)"]
+    IMG1 -->|"docker tag …:latest"| IMG2["local image<br/>v1.0.0 + latest<br/>(same layers, two labels)"]
+    IMG2 -->|"docker login + docker push :v1.0.0"| HUB1["Docker Hub :v1.0.0<br/>→ sha256:abc123 (28 MB)"]
+    IMG2 -->|"docker push :latest"| HUB2["Docker Hub :latest<br/>→ sha256:abc123 (same,<br/>manifest only, no re-upload)"]
 ```
 
 ---

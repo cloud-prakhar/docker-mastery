@@ -6,20 +6,15 @@ Docker Compose lets you define and run multi-container applications with a singl
 
 Compose is not a separate container system — it is a thin orchestrator that reads your YAML file and translates it into the same Docker API calls you would make manually.
 
-```
-docker-compose.yml
-        │
-        │  docker compose up
-        ▼
-  Compose reads YAML
-        │
-        ├── creates networks  (docker network create …)
-        ├── creates volumes   (docker volume create …)
-        └── starts services   (docker container run … for each service)
-                │
-                ▼
-        Docker Daemon
-        (same daemon that handles docker run)
+```mermaid
+flowchart TB
+    Y["docker-compose.yml"] -->|"docker compose up"| R["Compose reads the YAML"]
+    R --> N["creates networks  (docker network create …)"]
+    R --> V["creates volumes   (docker volume create …)"]
+    R --> S["starts services   (docker container run … per service)"]
+    N --> D["Docker Daemon<br/>(same daemon that handles docker run)"]
+    V --> D
+    S --> D
 ```
 
 Key implications for beginners:

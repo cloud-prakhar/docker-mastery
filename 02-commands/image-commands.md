@@ -76,14 +76,14 @@ Useful for air-gapped environments.
 
 ## Image Naming Convention
 
-```
-docker.io/library/nginx:alpine
-│         │       │     │
-│         │       │     └─ Tag
-│         │       └─ Image name
-│         └─ Namespace (official images use "library")
-└─ Registry (default: docker.io)
-```
+For `docker.io/library/nginx:alpine`:
+
+| Part | Meaning |
+|---|---|
+| `docker.io` | registry (default: `docker.io`) |
+| `library` | namespace (official images use `library`) |
+| `nginx` | image name |
+| `alpine` | tag |
 
 Common registries:
 - `docker.io` — Docker Hub (default)

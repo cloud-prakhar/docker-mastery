@@ -8,21 +8,29 @@
 
 Before containers, the classic developer frustration was:
 
-```
-Developer says:  "It works on my machine!"
-Ops team says:   "Well, it doesn't work in production!"
+> **Developer:** "It works on my machine!"
+> **Ops team:** "Well, it doesn't work in production!"
+
+Why did this happen? The app worked on the developer's laptop because that laptop had a very specific setup:
+
+- Python 3.9 (the server had 3.7)
+- a particular version of every library
+- an environment variable set in the developer's shell
+- a config file sitting at a path that only existed on their machine
+
+Move the same code to a server with even *one* of those things different, and it breaks. The code didn't change — the **environment around the code** did.
+
+**The fix is to package the app *together with everything it needs*** — the language runtime, the libraries, the config, the file layout — so the bundle behaves identically everywhere.
+
+Two technologies solve this in different ways:
+
+```mermaid
+flowchart LR
+    P["'Works on my machine'<br/>problem"] --> VM["Way 1: Virtual Machines<br/>(came first, heavyweight)"]
+    P --> C["Way 2: Containers<br/>(what Docker does, lightweight)"]
 ```
 
-The app worked locally because the developer had Python 3.9, a specific library version, an environment variable set in their shell, and a config file in a particular path. The server had Python 3.7, different library versions, and none of that config.
-
-**The solution:** package the app *together with everything it needs* — runtime, libraries, config, and all.
-
-There were two ways to solve this:
-
-```
-Way 1: Virtual Machines        Way 2: Containers
-(existed first)                (what Docker does)
-```
+The rest of this document explains both, and *why containers won* for most modern software.
 
 ---
 
@@ -30,29 +38,27 @@ Way 1: Virtual Machines        Way 2: Containers
 
 A **Virtual Machine (VM)** is a software emulation of a complete computer. It runs an entire operating system (called the **Guest OS**) on top of your real hardware (the **Host**).
 
-```
-┌─────────────────────────────────────────────┐
-│                 Host Machine                 │
-│  ┌────────────────────────────────────────┐ │
-│  │               Host OS                  │ │
-│  │  ┌──────────────────────────────────┐  │ │
-│  │  │           Hypervisor             │  │ │
-│  │  │  ┌──────────┐   ┌──────────┐    │  │ │
-│  │  │  │   VM 1   │   │   VM 2   │    │  │ │
-│  │  │  │ ┌──────┐ │   │ ┌──────┐ │   │  │ │
-│  │  │  │ │Guest │ │   │ │Guest │ │   │  │ │
-│  │  │  │ │ OS   │ │   │ │ OS   │ │   │  │ │
-│  │  │  │ ├──────┤ │   │ ├──────┤ │   │  │ │
-│  │  │  │ │ App  │ │   │ │ App  │ │   │  │ │
-│  │  │  │ └──────┘ │   │ └──────┘ │   │  │ │
-│  │  │  └──────────┘   └──────────┘    │  │ │
-│  │  └──────────────────────────────────┘  │ │
-│  └────────────────────────────────────────┘ │
-│                  Hardware                    │
-└─────────────────────────────────────────────┘
+The key idea: a VM pretends to *be* a physical machine. The Guest OS inside it has no idea it isn't running on real hardware — it boots, loads drivers, and manages "its own" CPU and disk exactly as if it owned the whole box.
+
+```mermaid
+flowchart TB
+    subgraph Host["Host Machine"]
+        HW["Hardware (CPU, RAM, Disk)"]
+        HOS["Host OS"]
+        HV["Hypervisor"]
+        subgraph VM1["VM 1"]
+            G1["Guest OS"] --> A1["App A"]
+        end
+        subgraph VM2["VM 2"]
+            G2["Guest OS"] --> A2["App B"]
+        end
+        HW --> HOS --> HV
+        HV --> VM1
+        HV --> VM2
+    end
 ```
 
-Each VM is **completely independent** — its own OS, its own kernel, its own drivers. They don't share anything with each other or the host OS (at the OS level).
+Each VM is **completely independent** — its own OS, its own kernel, its own drivers. They share nothing with each other or the host at the OS level. That independence is a VM's biggest strength (strong isolation) *and* its biggest cost (a full OS per VM).
 
 ---
 
@@ -64,21 +70,16 @@ Think of a hypervisor as a **traffic cop for hardware resources** — it decides
 
 ### How a Hypervisor Works
 
-```
-Physical CPU has 8 cores, 32GB RAM, 1TB disk
-                          │
-                    Hypervisor
-                   (traffic cop)
-                    /         \
-          ┌────────┐           ┌────────┐
-          │  VM 1  │           │  VM 2  │
-          │ 2 cores│           │ 4 cores│
-          │  8GB   │           │ 16GB   │
-          │ 200GB  │           │ 500GB  │
-          └────────┘           └────────┘
+One physical machine (say 8 CPU cores, 32 GB RAM, 1 TB disk) is *sliced* into several virtual machines, each given a fixed portion:
+
+```mermaid
+flowchart TB
+    HW["Physical machine<br/>8 cores · 32 GB RAM · 1 TB disk"] --> HV["Hypervisor<br/>(the traffic cop)"]
+    HV --> VM1["VM 1<br/>2 cores · 8 GB · 200 GB"]
+    HV --> VM2["VM 2<br/>4 cores · 16 GB · 500 GB"]
 ```
 
-The hypervisor uses **hardware virtualization extensions** (Intel VT-x, AMD-V) built into modern CPUs to do this efficiently.
+The hypervisor uses **hardware virtualization extensions** (Intel VT-x, AMD-V) built into modern CPUs to do this efficiently — so the Guest OS runs *almost* as fast as if it had the hardware to itself.
 
 ---
 
@@ -86,26 +87,20 @@ The hypervisor uses **hardware virtualization extensions** (Intel VT-x, AMD-V) b
 
 ### Type 1 — Bare-Metal Hypervisor
 
-Runs **directly on the hardware** — no host OS in between. The hypervisor IS the operating system of the machine.
+Runs **directly on the hardware** — no host OS in between. The hypervisor *is* the operating system of the machine.
 
-```
-┌─────────────────────────────────────┐
-│  VM 1        VM 2        VM 3       │
-│ ┌──────┐   ┌──────┐   ┌──────┐     │
-│ │Ubuntu│   │CentOS│   │Win11 │     │   ← Guest OSes
-│ └──────┘   └──────┘   └──────┘     │
-├─────────────────────────────────────┤
-│         Type 1 Hypervisor           │   ← Runs directly on hardware
-│    (VMware ESXi / Hyper-V / KVM)    │
-├─────────────────────────────────────┤
-│              Hardware               │
-└─────────────────────────────────────┘
+```mermaid
+flowchart TB
+    HW["Hardware"] --> HV["Type 1 Hypervisor<br/>(VMware ESXi / Hyper-V / KVM)"]
+    HV --> VM1["Ubuntu (Guest)"]
+    HV --> VM2["CentOS (Guest)"]
+    HV --> VM3["Windows 11 (Guest)"]
 ```
 
 **Examples:**
 - **VMware ESXi** — used in enterprise data centers
 - **Microsoft Hyper-V** — used in Windows Server, Azure
-- **KVM** — built into Linux kernel, used by AWS under the hood
+- **KVM** — built into the Linux kernel, used by AWS under the hood
 - **Xen** — used by older AWS EC2 instances
 
 **Characteristics:**
@@ -114,29 +109,20 @@ Runs **directly on the hardware** — no host OS in between. The hypervisor IS t
 - What cloud providers (AWS, Azure, GCP) run in their data centers
 - Direct access to hardware resources
 
-**Real-world analogy:** A hotel where the building IS the hotel management system — no separate manager office, management is baked into the walls.
+**Real-world analogy:** A hotel where the building *is* the hotel management system — no separate manager's office, management is baked into the walls.
 
 ---
 
 ### Type 2 — Hosted Hypervisor
 
-Runs **on top of a host OS** — the host OS boots first, then you run the hypervisor as an application.
+Runs **on top of a host OS** — the host OS boots first, then you launch the hypervisor as a regular application.
 
-```
-┌─────────────────────────────────────┐
-│  VM 1                VM 2           │
-│ ┌────────────┐   ┌────────────┐     │
-│ │  Ubuntu    │   │  Windows   │     │   ← Guest OSes
-│ │  (Guest)   │   │  (Guest)   │     │
-│ └────────────┘   └────────────┘     │
-├─────────────────────────────────────┤
-│       Type 2 Hypervisor             │   ← Runs as an app
-│   (VirtualBox / VMware Workstation) │
-├─────────────────────────────────────┤
-│          Host OS (macOS/Windows)    │   ← Your laptop OS
-├─────────────────────────────────────┤
-│              Hardware               │
-└─────────────────────────────────────┘
+```mermaid
+flowchart TB
+    HW["Hardware"] --> HOS["Host OS (macOS / Windows — your laptop)"]
+    HOS --> HV["Type 2 Hypervisor<br/>(VirtualBox / VMware Workstation)"]
+    HV --> VM1["Ubuntu (Guest)"]
+    HV --> VM2["Windows (Guest)"]
 ```
 
 **Examples:**
@@ -147,45 +133,40 @@ Runs **on top of a host OS** — the host OS boots first, then you run the hyper
 
 **Characteristics:**
 - Easier to install (just another app)
-- Some performance overhead (goes through host OS)
+- Some performance overhead (requests pass through the host OS)
 - Great for development and testing on a laptop
 - Slower than Type 1
 
-**Real-world analogy:** A hotel where the building is a regular office building (host OS), and the hotel management is a tenant company on floor 3 (hypervisor as an app).
+**Real-world analogy:** A hotel that rents a few floors inside a normal office building (the host OS). The building was there first; the hotel is just a tenant.
 
 ---
 
 ### Type 1 vs Type 2 — Side by Side
 
-```
-Feature              Type 1 (Bare Metal)     Type 2 (Hosted)
-─────────────────────────────────────────────────────────────
-Runs on              Hardware directly        Host OS
-Performance          ★★★★★ (best)            ★★★☆☆
-Use case             Data centers, cloud      Developer laptops
-Examples             ESXi, Hyper-V, KVM      VirtualBox, Parallels
-Install complexity   High (needs server)      Low (just an app)
-Cost                 Enterprise pricing       Free (VirtualBox)
-```
+| Feature | Type 1 (Bare Metal) | Type 2 (Hosted) |
+|---|---|---|
+| Runs on | Hardware directly | A host OS |
+| Performance | ★★★★★ (best) | ★★★☆☆ |
+| Use case | Data centers, cloud | Developer laptops |
+| Examples | ESXi, Hyper-V, KVM | VirtualBox, Parallels |
+| Install complexity | High (needs a server) | Low (just an app) |
+| Cost | Enterprise pricing | Free (VirtualBox) |
 
 ---
 
 ## 5. The Problem with VMs
 
-VMs solved the "works on my machine" problem, but introduced new ones:
+VMs solved the "works on my machine" problem, but introduced new ones. The root cause of all of them is the same: **every VM carries a full operating system.**
 
-```
-VM Problems:
-┌───────────────────────────────────────────┐
-│ ✗ Each VM = Full OS = 1-20 GB of disk    │
-│ ✗ Slow boot: minutes (OS has to boot)    │
-│ ✗ High RAM usage (OS overhead: ~512MB+)  │
-│ ✗ Hard to scale: spin up takes minutes   │
-│ ✗ Heavy to move: GBs to transfer         │
-└───────────────────────────────────────────┘
-```
+| VM downside | Why it hurts |
+|---|---|
+| Each VM = a full OS | 1–20 GB of disk *per VM*, before your app is even added |
+| Slow to boot | Minutes — the whole OS has to start up |
+| High RAM usage | The OS alone reserves ~512 MB+ before your app runs |
+| Hard to scale | Spinning up a new instance takes minutes, not seconds |
+| Heavy to move | Images are gigabytes to copy or transfer |
 
-If you have 50 microservices, you'd need 50 VMs. That's 50 full OS installs, hundreds of GBs, and minutes of startup time.
+If you have 50 microservices and run each in its own VM, that's **50 full OS installs** — hundreds of gigabytes of disk and RAM spent on operating systems you never actually wanted, just to run 50 small apps.
 
 ---
 
@@ -193,246 +174,200 @@ If you have 50 microservices, you'd need 50 VMs. That's 50 full OS installs, hun
 
 Containers use a completely different approach: **OS-level virtualization**.
 
-Instead of emulating hardware and running a full OS, containers use **Linux kernel features** to create isolated process groups that *share the same OS kernel* but can't see or affect each other.
+Instead of emulating hardware and booting a full OS, containers use **features built into the Linux kernel** to create isolated process groups. Every container *shares the host's single kernel*, but each one is fenced off so it can't see or affect the others.
 
+The difference in one sentence: **a VM virtualizes the hardware; a container virtualizes the operating system.**
+
+```mermaid
+flowchart TB
+    subgraph Host["Host Machine"]
+        HW["Hardware"]
+        K["Host OS — single shared Linux kernel"]
+        subgraph C1["Container 1"]
+            A1["App A"] --> L1["Libs / Deps"]
+        end
+        subgraph C2["Container 2"]
+            A2["App B"] --> L2["Libs / Deps"]
+        end
+        HW --> K
+        K --> C1
+        K --> C2
+    end
 ```
-┌──────────────────────────────────────────────┐
-│                  Host Machine                 │
-│  ┌──────────────────────────────────────────┐│
-│  │               Host OS (Linux)            ││
-│  │                                          ││
-│  │  ┌────────────┐  ┌────────────┐          ││
-│  │  │ Container 1│  │ Container 2│          ││
-│  │  │ ┌────────┐ │  │ ┌────────┐ │          ││
-│  │  │ │ App A  │ │  │ │ App B  │ │          ││
-│  │  │ ├────────┤ │  │ ├────────┤ │          ││
-│  │  │ │Libs/   │ │  │ │Libs/   │ │          ││
-│  │  │ │Deps    │ │  │ │Deps    │ │          ││
-│  │  │ └────────┘ │  │ └────────┘ │          ││
-│  │  └────────────┘  └────────────┘          ││
-│  │         ↑               ↑                 ││
-│  │         └───────────────┘                 ││
-│  │        Both share Host OS kernel          ││
-│  └──────────────────────────────────────────┘│
-│                   Hardware                    │
-└──────────────────────────────────────────────┘
-```
+
+Notice what's *missing* compared to the VM diagram: there's no Guest OS inside each container. That's the whole saving. A container ships only your app plus its libraries — often just a few megabytes.
 
 ### The Two Linux Features That Make This Possible
 
-**Namespaces** — give each container its own isolated view of the system:
+**Namespaces** — give each container its own private *view* of the system. A process inside the container sees only what its namespaces allow:
 
-```
-Namespace         What it isolates
-────────────────────────────────────────────────
-pid               Process IDs (container has its own PID 1)
-net               Network interfaces, IP addresses, ports
-mnt               Filesystem mount points
-uts               Hostname and domain name
-ipc               Inter-process communication
-user              User and group IDs
-cgroup            Resource control groups (Linux 4.6+)
-```
+| Namespace | What it isolates |
+|---|---|
+| `pid` | Process IDs (the container has its own PID 1) |
+| `net` | Network interfaces, IP addresses, ports |
+| `mnt` | Filesystem mount points |
+| `uts` | Hostname and domain name |
+| `ipc` | Inter-process communication |
+| `user` | User and group IDs |
+| `cgroup` | Resource control groups (Linux 4.6+) |
 
-**cgroups (Control Groups)** — limit and track resource usage:
+**Example:** run `ps aux` inside a container and you might see only one or two processes — even though the host is running hundreds. The `pid` namespace hides everything outside the container.
 
-```
-cgroup limits:
-  ┌─────────────────────────────────┐
-  │ Container A: max 512MB RAM      │
-  │ Container B: max 2 CPU cores    │
-  │ Container C: max 100MB/s disk   │
-  └─────────────────────────────────┘
+**cgroups (Control Groups)** — *limit and track* how much of each resource a container may use:
+
+```mermaid
+flowchart LR
+    CG["cgroups"] --> A["Container A<br/>max 512 MB RAM"]
+    CG --> B["Container B<br/>max 2 CPU cores"]
+    CG --> C["Container C<br/>max 100 MB/s disk"]
 ```
 
-Together, namespaces make each container *think it's alone on the machine*, while cgroups prevent any container from consuming all the host's resources.
+Put them together and the picture is clear: **namespaces make each container *think it's alone* on the machine, while cgroups stop any one container from hogging all the host's resources.**
 
 ---
 
 ## 7. VM vs Container — Direct Comparison
 
-```
-                    Virtual Machine          Container
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Isolation           Hardware-level           OS process-level
-OS per unit         Full OS (1-20 GB)        No OS (shared kernel)
-Startup time        Minutes                  Milliseconds
-Size                Gigabytes                Megabytes
-Performance         Near-native (Type 1)     Native (no overhead)
-Portability         Heavy (large images)     Light (small images)
-Density             ~10s per host            ~100s per host
-Security            Strong (kernel isolated) Good (shared kernel)
-Use case            Long-running servers     Microservices, apps
-Immutability        Hard                     Built-in
-```
+| | Virtual Machine | Container |
+|---|---|---|
+| Isolation | Hardware-level | OS process-level |
+| OS per unit | Full OS (1–20 GB) | None (shares the host kernel) |
+| Startup time | Minutes | Milliseconds |
+| Size | Gigabytes | Megabytes |
+| Performance | Near-native (Type 1) | Native (no overhead) |
+| Portability | Heavy (large images) | Light (small images) |
+| Density | ~10s per host | ~100s per host |
+| Security | Strong (kernel isolated) | Good (shared kernel) |
+| Use case | Long-running servers | Microservices, apps |
+| Immutability | Hard | Built-in |
 
 ### When to use VMs
-- Running different operating systems (Linux app on Windows host)
-- Strong security isolation requirements (financial, healthcare)
+- Running a different operating system (a Windows app on a Linux host)
+- Strong security isolation requirements (finance, healthcare)
 - Legacy applications that need a full OS environment
 - Database servers where you want OS-level control
 
 ### When to use Containers
 - Microservices architectures
-- CI/CD pipelines (fast, disposable)
+- CI/CD pipelines (fast and disposable)
 - Scalable web applications
 - Development environments
-- Anything you want to deploy once and run anywhere
+- Anything you want to "deploy once, run anywhere"
 
 ### When to use BOTH
-In practice, cloud environments use **both**:
 
-```
-Cloud Provider (AWS, GCP, Azure)
-        │
-        ▼
-┌──────────────────┐   ← Type 1 Hypervisor (KVM/Xen/Hyper-V)
-│  Virtual Machine │      You rent this (EC2, Compute Engine)
-│  (your server)   │
-│                  │
-│  ┌────────────┐  │   ← Docker running inside your VM
-│  │ Container1 │  │
-│  ├────────────┤  │
-│  │ Container2 │  │
-│  └────────────┘  │
-└──────────────────┘
+In practice, cloud environments use **both** — containers *inside* VMs:
+
+```mermaid
+flowchart TB
+    CP["Cloud provider (AWS / GCP / Azure)"] --> VM["Virtual Machine<br/>you rent this (EC2 / Compute Engine)<br/>Type 1 hypervisor underneath"]
+    subgraph VM
+        D["Docker Engine"] --> C1["Container 1"]
+        D --> C2["Container 2"]
+    end
 ```
 
-Your containers run inside a VM that runs on a hypervisor in a data center. You get both: cloud elasticity from VMs, and app portability from containers.
+Your containers run inside a VM, which runs on a hypervisor, in a data center. You get the best of both: **cloud elasticity** from the VM and **app portability** from the containers.
 
 ---
 
 ## 8. Docker's Architecture
 
-Docker is not just "run containers" — it's a client-server system:
+Docker is not a single program that "runs containers" — it's a **client-server system**. The command you type (`docker`) is just a thin client that sends instructions to a background service that does the real work.
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                   Your Terminal                          │
-│   docker build / docker run / docker push               │
-│                       │                                  │
-│              Docker CLI (client)                         │
-│                       │                                  │
-│               REST API over socket                       │
-│                       │                                  │
-└───────────────────────┼─────────────────────────────────┘
-                        │
-                        ▼
-┌─────────────────────────────────────────────────────────┐
-│              Docker Daemon (dockerd)                     │
-│                                                          │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐ │
-│  │   Images    │  │ Containers  │  │    Networks &    │ │
-│  │  (stored    │  │  (running   │  │    Volumes       │ │
-│  │  locally)   │  │  processes) │  │                  │ │
-│  └─────────────┘  └─────────────┘  └─────────────────┘ │
-│                          │                               │
-│                    containerd                            │
-│                    (low-level)                           │
-│                          │                               │
-│                      runc                                │
-│              (actually creates containers                │
-│              using Linux namespaces + cgroups)           │
-└─────────────────────────────────────────────────────────┘
-                        │
-                        ▼ (pull/push)
-┌─────────────────────────────────────────────────────────┐
-│                  Docker Registry                         │
-│               (Docker Hub / ECR / GCR)                  │
-│                                                          │
-│   nginx:alpine   python:3.12-slim   postgres:16         │
-└─────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph Client["Your terminal"]
+        CLI["Docker CLI<br/>docker build / run / push"]
+    end
+    CLI -->|"REST API over /var/run/docker.sock"| D
+    subgraph D["Docker Daemon (dockerd)"]
+        IMG["Images<br/>(stored locally)"]
+        CON["Containers<br/>(running processes)"]
+        NET["Networks & Volumes"]
+        CD["containerd<br/>(lifecycle management)"]
+        RUNC["runc<br/>(creates containers via<br/>namespaces + cgroups)"]
+        CD --> RUNC
+    end
+    D <-->|"pull / push"| REG["Docker Registry<br/>(Docker Hub / ECR / GCR)<br/>nginx:alpine · python:3.12-slim · postgres:16"]
 ```
 
 **Key components:**
 - **Docker CLI** — the `docker` command you type
-- **Docker Daemon (dockerd)** — background service that does the actual work
-- **containerd** — container lifecycle management (start, stop, pull images)
-- **runc** — low-level tool that calls Linux kernel APIs (namespaces, cgroups) to actually create the container
+- **Docker Daemon (dockerd)** — the background service that does the actual work
+- **containerd** — manages the container lifecycle (start, stop, pull images)
+- **runc** — the low-level tool that calls Linux kernel APIs (namespaces, cgroups) to actually create the container
 - **Registry** — remote storage for images
 
-When you type `docker run nginx`, here's what happens:
+### What happens when you run `docker run nginx`
 
+```mermaid
+sequenceDiagram
+    participant You
+    participant CLI as Docker CLI
+    participant D as Daemon (dockerd)
+    participant Hub as Docker Hub
+    participant K as Linux kernel
+    You->>CLI: docker run nginx
+    CLI->>D: request via /var/run/docker.sock
+    D->>D: Is the nginx image cached locally?
+    alt not cached
+        D->>Hub: pull nginx (layer by layer)
+        Hub-->>D: image layers
+    end
+    D->>K: containerd → runc create namespaces + cgroups,<br/>mount image filesystem (overlayfs)
+    K-->>D: nginx started as PID 1 in new namespace
+    D-->>You: Container is running — nginx serves requests
 ```
-You: docker run nginx
-  │
-  ▼
-Docker CLI sends request to daemon via /var/run/docker.sock
-  │
-  ▼
-Daemon checks: do I have the nginx image locally?
-  │
-  ├── No → pull from Docker Hub (layer by layer)
-  │
-  ▼
-Daemon asks containerd to create a container
-  │
-  ▼
-containerd calls runc
-  │
-  ▼
-runc calls Linux kernel:
-  - create new namespaces (pid, net, mnt, uts...)
-  - set up cgroups (resource limits)
-  - mount the image filesystem (overlayfs)
-  - start the process (nginx) as PID 1 in the new namespace
-  │
-  ▼
-Container is running! nginx serves requests.
-```
+
+The takeaway: by the time a container starts, the kernel has done all the real isolation work (namespaces + cgroups). Docker is the friendly tooling layer on top.
 
 ---
 
 ## 9. Image Layers — How Docker Stays Small
 
-Docker images are built from **layers**. Each Dockerfile instruction that changes the filesystem creates a new layer. Layers are **cached and shared**.
+Docker images are built from **layers**. Each Dockerfile instruction that changes the filesystem creates a new layer, and layers are **cached and shared** between images.
 
-```
-FROM ubuntu:22.04          Layer 1:  ubuntu base (29MB)
-RUN apt-get install nginx  Layer 2:  + nginx files  (+15MB)
-COPY ./html /var/www/html  Layer 3:  + your HTML   (+1KB)
-                                    ─────────────────────
-                                    Total: ~44MB
-
-Another app:
-FROM ubuntu:22.04          Layer 1:  ubuntu base — ALREADY CACHED
-RUN apt-get install python Layer 2:  + python files (+25MB)
-                                    ─────────────────────
-                                    Pulled: only 25MB (ubuntu cached)
+```mermaid
+flowchart TB
+    subgraph imgA["nginx image"]
+        L1A["Layer 1: ubuntu:22.04 base (29 MB)"] --> L2A["Layer 2: + nginx files (15 MB)"] --> L3A["Layer 3: + your HTML (1 KB)"]
+    end
+    subgraph imgB["python image"]
+        L1B["Layer 1: ubuntu:22.04 base — ALREADY CACHED"] --> L2B["Layer 2: + python files (25 MB)"]
+    end
 ```
 
-This is why `docker pull` shows "Already exists" for many layers — they're shared across images.
+Because both images start `FROM ubuntu:22.04`, that base layer is **downloaded once and reused**. Building the second image only pulls the 25 MB of python files — the 29 MB base is already on disk.
 
+This is exactly why `docker pull` prints **"Already exists"** for many layers: they're shared, not re-downloaded.
+
+```mermaid
+flowchart TB
+    subgraph Disk["On disk (stored once each)"]
+        S1["ubuntu:22.04 base — 29 MB ← shared by BOTH images"]
+        S2["nginx files — 15 MB"]
+        S3["your HTML — 1 KB"]
+        S4["python files — 25 MB"]
+    end
 ```
-Disk:
-┌──────────────────────────────────────────┐
-│  Layer: ubuntu:22.04 base  (29MB) ◄──────┼── shared by both images
-│  Layer: nginx files        (15MB)         │
-│  Layer: your HTML          (1KB)          │
-│  Layer: python files       (25MB)         │
-└──────────────────────────────────────────┘
-Total on disk: 70MB  (not 44+54 = 98MB)
-```
+
+Stored total: **~70 MB**, not 44 MB + 54 MB = 98 MB. The shared base layer is only counted once. (See [image-layers.md](image-layers.md) for the full deep dive.)
 
 ---
 
 ## 10. Summary
 
-```
-Hypervisor (Type 1)   Hypervisor (Type 2)   Container (Docker)
-──────────────────    ──────────────────    ──────────────────
-VMware ESXi           VirtualBox            Docker Engine
-Hyper-V               VMware Workstation    containerd + runc
-KVM / Xen             Parallels             Linux namespaces
-
-On bare hardware       On your laptop OS     Inside any OS
-Full OS per VM         Full OS per VM        Shared kernel
-GBs per VM             GBs per VM            MBs per container
-Minutes to boot        Minutes to boot       Milliseconds to start
-Hardware isolation     Hardware isolation    Process isolation
-```
+| | Hypervisor (Type 1) | Hypervisor (Type 2) | Container (Docker) |
+|---|---|---|---|
+| Example | VMware ESXi, Hyper-V, KVM/Xen | VirtualBox, VMware Workstation, Parallels | Docker Engine (containerd + runc) |
+| Runs on | Bare hardware | Your laptop's OS | Inside any OS |
+| OS per unit | Full OS per VM | Full OS per VM | Shared kernel |
+| Size | GBs per VM | GBs per VM | MBs per container |
+| Startup | Minutes | Minutes | Milliseconds |
+| Isolation | Hardware | Hardware | Process (namespaces + cgroups) |
 
 **The mental model to keep:**
-- VM = your own house (own land, own walls, own utilities)
-- Container = your apartment (shared building/pipes/electricity, but private space)
-- Hypervisor = the property management company that allocates the houses/land
+- **VM** = your own house — own land, own walls, own utilities. Private, but expensive to build and maintain.
+- **Container** = an apartment — shared building, pipes, and electricity, but your own private space inside. Cheap and fast to move into.
+- **Hypervisor** = the property management company that hands out the land and the houses.

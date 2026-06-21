@@ -8,13 +8,15 @@ When Docker creates a bridge network, it:
 3. For each container, creates a **veth pair** — one end in the container's network namespace (`eth0`), one end on the bridge
 4. The bridge routes traffic between containers and to the host via iptables NAT rules
 
-```
-Host
-├── docker0 (bridge: 172.17.0.1)
-│   ├── veth0a  ──────►  Container A (172.17.0.2 eth0)
-│   └── veth0b  ──────►  Container B (172.17.0.3 eth0)
-│
-└── iptables NAT: container traffic → host IP for outbound internet
+```mermaid
+flowchart TB
+    subgraph Host
+        BR["docker0 bridge<br/>172.17.0.1"]
+        NAT["iptables NAT<br/>container traffic → host IP for outbound internet"]
+    end
+    BR -->|veth0a| A["Container A<br/>172.17.0.2 eth0"]
+    BR -->|veth0b| B["Container B<br/>172.17.0.3 eth0"]
+    BR --> NAT --> NET["Internet"]
 ```
 
 Inspect with:

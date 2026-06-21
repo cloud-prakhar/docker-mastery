@@ -18,20 +18,20 @@ In Docker:
 - The full filesystem a container sees is constructed by stacking layers in order
 - Layers are immutable — once created, a layer never changes
 
-```
-Git history:                    Docker image:
+| Git history | Docker image |
+|---|---|
+| `commit abc: "add index.html"` | Layer 4: `COPY ./app /app` |
+| `commit def: "install deps"` | Layer 3: `RUN pip install flask` |
+| `commit ghi: "add Dockerfile"` | Layer 2: `RUN apt-get install python3` |
+| `commit xyz: "initial ubuntu"` | Layer 1: `FROM ubuntu:22.04` |
 
-commit abc: "add index.html"    Layer 4: COPY ./app /app
-commit def: "install deps"      Layer 3: RUN pip install flask
-commit ghi: "add Dockerfile"    Layer 2: RUN apt-get install python3
-commit xyz: "initial ubuntu"    Layer 1: FROM ubuntu:22.04
-```
+Just like Git, the newest change sits on top and everything below it stays frozen.
 
 ---
 
 ## 2. How Dockerfile Instructions Become Layers
 
-Not every Dockerfile instruction creates a layer. Only instructions that **change the filesystem** produce a new layer:
+Not every Dockerfile instruction creates a layer. Only instructions that **change the filesystem** produce a new layer. The rest just attach *metadata* to the image (settings Docker remembers, but no files added):
 
 | Instruction | Creates a layer? | Why |
 |---|---|---|
@@ -60,49 +60,45 @@ COPY . .                       # layer: copies your source code
 CMD ["python", "app.py"]       # no layer (metadata only)
 ```
 
-Resulting image layer stack:
+Resulting image layer stack (newest on top, base at the bottom):
 
+```mermaid
+flowchart TB
+    L6["Layer 6 — COPY . .  →  your source code<br/>sha256:a1b2c3…  ~50 KB"]
+    L5["Layer 5 — RUN pip install  →  installed packages<br/>sha256:d4e5f6…  ~25 MB"]
+    L4["Layer 4 — COPY requirements.txt  →  requirements file<br/>sha256:g7h8i9…  ~1 KB"]
+    L3["Layer 3 — WORKDIR /app  →  /app directory<br/>sha256:j0k1l2…  ~1 KB"]
+    L12["Layers 1-2 — FROM python:3.12-slim  →  Python + slim Debian<br/>sha256:m3n4o5…  ~50 MB"]
+    L6 --> L5 --> L4 --> L3 --> L12
 ```
-┌─────────────────────────────────────────────────────┐
-│  Layer 6 (COPY . .)                                 │  ← your source code
-│  sha256:a1b2c3...  ~50KB                            │
-├─────────────────────────────────────────────────────┤
-│  Layer 5 (RUN pip install)                          │  ← installed packages
-│  sha256:d4e5f6...  ~25MB                            │
-├─────────────────────────────────────────────────────┤
-│  Layer 4 (COPY requirements.txt)                    │  ← requirements file
-│  sha256:g7h8i9...  ~1KB                             │
-├─────────────────────────────────────────────────────┤
-│  Layer 3 (WORKDIR /app)                             │  ← /app directory
-│  sha256:j0k1l2...  ~1KB                             │
-├─────────────────────────────────────────────────────┤
-│  Layers 1-2 (FROM python:3.12-slim)                 │  ← Python + slim Debian
-│  sha256:m3n4o5...  ~50MB (multiple layers merged)   │
-└─────────────────────────────────────────────────────┘
-Total image size on disk: ~75MB
-```
+
+Total image size on disk: **~75 MB**.
 
 ---
 
 ## 3. How Layers Are Stored: The overlay2 Driver
 
-On Linux, Docker uses the **overlay2** storage driver to merge layers into a single unified filesystem view. This is what a running container's filesystem actually looks like:
+On Linux, Docker uses the **overlay2** storage driver to merge all the layers into a single unified filesystem view. The container process sees one ordinary filesystem and has no idea it's actually built from stacked layers:
 
+```mermaid
+flowchart LR
+    subgraph View["What the container sees — one normal filesystem"]
+        F1["/app/app.py"]
+        F2["/app/requirements.txt"]
+        F3["/usr/local/lib/python3.12/site-packages/…"]
+        F4["/app/ (directory)"]
+        F5["/usr/local/bin/python"]
+        F6["/bin, /lib, /etc …"]
+    end
+    F1 -.from.-> L6["Layer 6 (COPY . .)"]
+    F2 -.from.-> L4["Layer 4 (COPY requirements.txt)"]
+    F3 -.from.-> L5["Layer 5 (pip install)"]
+    F4 -.from.-> L3["Layer 3 (WORKDIR)"]
+    F5 -.from.-> B["python:3.12-slim base layers"]
+    F6 -.from.-> B
 ```
-Container sees ONE unified filesystem:
 
-/app/app.py          ← comes from Layer 6 (COPY . .)
-/app/requirements.txt← comes from Layer 4 (COPY requirements.txt)
-/usr/local/lib/...   ← comes from Layer 5 (pip install)
-/app/               ← directory from Layer 3 (WORKDIR)
-/usr/local/bin/python← comes from python:3.12-slim base layers
-/bin, /lib, /etc ... ← comes from base layers
-
-The container sees all of this as a single, normal filesystem.
-It has no idea it's made of stacked layers.
-```
-
-On disk (at `/var/lib/docker/overlay2/`), Docker stores each layer separately:
+On disk (at `/var/lib/docker/overlay2/`), Docker keeps each layer in its own directory:
 
 ```
 /var/lib/docker/overlay2/
@@ -120,7 +116,7 @@ On disk (at `/var/lib/docker/overlay2/`), Docker stores each layer separately:
 ...
 ```
 
-When Docker mounts the container, overlay2 presents all `diff/` directories as a single merged view — that's the filesystem the container process uses.
+When Docker starts the container, overlay2 stacks all those `diff/` directories and presents them as a single merged view — that merged view is the filesystem the container process actually uses.
 
 ---
 
@@ -128,23 +124,15 @@ When Docker mounts the container, overlay2 presents all `diff/` directories as a
 
 When you start a container from an image, Docker adds one more layer on top of all the image layers: the **writable container layer** (also called the "container layer" or "thin writable layer").
 
-```
-Running container filesystem:
-
-┌─────────────────────────────────────────────────────┐  ← Created when container starts
-│  Writable container layer                           │     Deleted when container is removed
-│  (empty at start; your process writes here)         │
-├─────────────────────────────────────────────────────┤
-│  Layer 6: COPY . .          (READ-ONLY)             │
-├─────────────────────────────────────────────────────┤
-│  Layer 5: RUN pip install   (READ-ONLY)             │
-├─────────────────────────────────────────────────────┤
-│  Layer 4: COPY requirements (READ-ONLY)             │
-├─────────────────────────────────────────────────────┤
-│  Layer 3: WORKDIR /app      (READ-ONLY)             │
-├─────────────────────────────────────────────────────┤
-│  Layers 1-2: python:3.12-slim (READ-ONLY)           │
-└─────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    W["Writable container layer (READ-WRITE)<br/>created when the container starts · deleted when it is removed<br/>empty at start — your process writes here"]
+    L6["Layer 6: COPY . .  (READ-ONLY)"]
+    L5["Layer 5: RUN pip install  (READ-ONLY)"]
+    L4["Layer 4: COPY requirements  (READ-ONLY)"]
+    L3["Layer 3: WORKDIR /app  (READ-ONLY)"]
+    L12["Layers 1-2: python:3.12-slim  (READ-ONLY)"]
+    W --> L6 --> L5 --> L4 --> L3 --> L12
 ```
 
 Key facts about the writable layer:
@@ -153,16 +141,15 @@ Key facts about the writable layer:
 - When the container is removed (`docker rm`), the writable layer is **permanently deleted**
 - Multiple containers started from the same image each get their own writable layer, but **share all the read-only image layers** — no duplication
 
+```mermaid
+flowchart TB
+    IMG["Image: nginx:alpine<br/>read-only layers (shared by all containers)"]
+    IMG --> WA["Container A — writable layer A"]
+    IMG --> WB["Container B — writable layer B"]
+    IMG --> WC["Container C — writable layer C"]
 ```
-Image: nginx:alpine
-  └── read-only layers (shared by all containers)
 
-Container A (writable layer A)  ┐
-Container B (writable layer B)  ├── each has its own writable layer
-Container C (writable layer C)  ┘   all share the same image layers below
-```
-
-This is why you can run 100 containers from the same image without using 100x the disk space.
+This is why you can run 100 containers from the same image without using 100× the disk space — only the (usually tiny) writable layers differ.
 
 ---
 
@@ -170,37 +157,23 @@ This is why you can run 100 containers from the same image without using 100x th
 
 What happens when a container process tries to **modify** a file that lives in a read-only image layer?
 
-Docker uses **copy-on-write**: before the process can write to the file, the storage driver copies it up from the read-only layer into the writable container layer. The process then edits the copy. The original layer is never touched.
+Docker uses **copy-on-write**: before the process can write to the file, the storage driver copies it *up* from the read-only layer into the writable container layer. The process then edits the copy. The original layer is never touched.
 
-```
-Container wants to edit /etc/nginx/nginx.conf:
-
-Step 1: /etc/nginx/nginx.conf is in a read-only image layer
-        ┌─────────────────────┐
-        │  Writable layer     │  (no nginx.conf yet)
-        ├─────────────────────┤
-        │  Image layer        │  nginx.conf ← original here
-        └─────────────────────┘
-
-Step 2: overlay2 copies the file UP to the writable layer
-        ┌─────────────────────┐
-        │  Writable layer     │  nginx.conf ← copy is here now
-        ├─────────────────────┤
-        │  Image layer        │  nginx.conf ← original, still intact
-        └─────────────────────┘
-
-Step 3: the process edits the copy in the writable layer
-        The image layer is untouched.
-        Other containers using the same image are unaffected.
+```mermaid
+flowchart TB
+    S1["1. /etc/nginx/nginx.conf lives in a read-only image layer<br/>(writable layer has no copy yet)"]
+    S2["2. overlay2 copies the file UP into the writable layer<br/>(original stays intact below)"]
+    S3["3. the process edits the copy in the writable layer<br/>original image layer untouched · other containers unaffected"]
+    S1 --> S2 --> S3
 ```
 
-CoW has a performance cost: the first write to any image-layer file requires a full file copy. For large files (databases, large logs), this overhead is why you should **always use volumes** for write-heavy paths rather than letting the container write to its writable layer.
+CoW has a performance cost: the **first** write to any image-layer file requires a full file copy. For large files (databases, large logs), this overhead is exactly why you should **always use volumes** for write-heavy paths rather than letting the container write into its writable layer. (See [volumes](../04-volumes/README.md).)
 
 ---
 
 ## 6. Layer Caching — The Build Cache
 
-Every time you run `docker build`, Docker checks whether it can **reuse a cached layer** instead of re-running the instruction. This is the most impactful optimization in day-to-day Docker use.
+Every time you run `docker build`, Docker checks whether it can **reuse a cached layer** instead of re-running the instruction. This is the most impactful optimization in day-to-day Docker use — it's the difference between a 2-second build and a 2-minute one.
 
 ### Cache Rules
 
@@ -208,30 +181,35 @@ Docker invalidates a layer's cache (and all layers after it) when:
 
 1. The instruction itself changes
 2. For `COPY`/`ADD`: any file in the source path has changed
-3. For `RUN`: the cache from the previous layer was invalidated (cache bust propagates forward)
+3. For `RUN`: the cache from the previous layer was invalidated (a cache bust propagates forward)
 
-```
-Dockerfile:                     First build:    Second build (only app.py changed):
+Here's the same Dockerfile across two builds, where only `app.py` changed the second time:
 
-FROM python:3.12-slim           CACHE HIT ✓     CACHE HIT ✓
-WORKDIR /app                    CACHE HIT ✓     CACHE HIT ✓
-COPY requirements.txt .         CACHE HIT ✓     CACHE HIT ✓  ← requirements unchanged
-RUN pip install -r req.txt      CACHE HIT ✓     CACHE HIT ✓  ← not re-run!
-COPY . .                        RUN (first)     CACHE MISS ✗ ← app.py changed
-CMD ["python", "app.py"]        (metadata)      (metadata)
-```
+| Instruction | First build | Second build (only `app.py` changed) |
+|---|---|---|
+| `FROM python:3.12-slim` | CACHE HIT ✓ | CACHE HIT ✓ |
+| `WORKDIR /app` | CACHE HIT ✓ | CACHE HIT ✓ |
+| `COPY requirements.txt .` | CACHE HIT ✓ | CACHE HIT ✓ — requirements unchanged |
+| `RUN pip install -r req.txt` | CACHE HIT ✓ | CACHE HIT ✓ — **not re-run!** |
+| `COPY . .` | RUN (first time) | CACHE MISS ✗ — `app.py` changed |
+| `CMD ["python","app.py"]` | (metadata) | (metadata) |
 
-Because `COPY requirements.txt` and `RUN pip install` are above `COPY . .`, they are **not invalidated** when only source code changes. The expensive pip install is skipped on every subsequent build.
+Because `COPY requirements.txt` and `RUN pip install` sit *above* `COPY . .`, they are **not invalidated** when only source code changes. The expensive `pip install` is skipped on every subsequent build.
 
 ### Cache Invalidation Propagates Forward
 
-If a layer's cache is invalidated, **every layer after it must also be rebuilt**, even if their instructions haven't changed.
+If a layer's cache is invalidated, **every layer after it must also be rebuilt**, even if those instructions haven't changed:
 
-```
-Layer 1: FROM ubuntu         ← cache hit
-Layer 2: RUN apt-get update  ← cache MISS (bust)
-Layer 3: COPY . .            ← forced rebuild (even if files unchanged)
-Layer 4: RUN make build      ← forced rebuild
+```mermaid
+flowchart TB
+    L1["Layer 1: FROM ubuntu  →  cache HIT ✓"]
+    L2["Layer 2: RUN apt-get update  →  cache MISS ✗ (bust)"]
+    L3["Layer 3: COPY . .  →  forced rebuild (even if files unchanged)"]
+    L4["Layer 4: RUN make build  →  forced rebuild"]
+    L1 --> L2 --> L3 --> L4
+    style L2 fill:#ffd9d9
+    style L3 fill:#ffe9d9
+    style L4 fill:#ffe9d9
 ```
 
 This is why **instruction order matters enormously**.
@@ -253,7 +231,7 @@ RUN pip install -r requirements.txt  # ← cached until requirements change
 COPY . .                          # ← changes frequently, but comes after the slow step
 ```
 
-The same pattern applies to every language:
+The same pattern applies to every language — copy the *dependency manifest* first, install, then copy the rest of the source:
 
 ```dockerfile
 # Node.js
@@ -278,24 +256,28 @@ COPY src ./src
 
 Because layers are identified by a content hash (SHA256), identical layers are **stored once on disk** and shared across all images that use them.
 
-```
-Image A: myapp:1.0              Image B: myapp:1.1
-┌───────────────────┐           ┌───────────────────┐
-│ COPY app v1.0     │           │ COPY app v1.1     │  ← different, stored separately
-├───────────────────┤           ├───────────────────┤
-│ RUN pip install   │           │ RUN pip install   │  ← same hash → stored ONCE
-├───────────────────┤           ├───────────────────┤
-│ COPY requirements │           │ COPY requirements │  ← same hash → stored ONCE
-├───────────────────┤           ├───────────────────┤
-│ python:3.12-slim  │           │ python:3.12-slim  │  ← same hash → stored ONCE
-└───────────────────┘           └───────────────────┘
-
-Disk usage:
-  Without sharing: 75MB + 75MB = 150MB
-  With sharing:    75MB + ~50KB (only the new top layer) = ~75MB
+```mermaid
+flowchart TB
+    subgraph A["Image A: myapp:1.0"]
+        A1["COPY app v1.0"]
+    end
+    subgraph B["Image B: myapp:1.1"]
+        B1["COPY app v1.1"]
+    end
+    A1 --> SH1["RUN pip install  (same hash → stored ONCE)"]
+    B1 --> SH1
+    SH1 --> SH2["COPY requirements  (same hash → stored ONCE)"]
+    SH2 --> SH3["python:3.12-slim base  (same hash → stored ONCE)"]
 ```
 
-This sharing also applies to `docker pull` — layers already present locally are never re-downloaded.
+Only the top `COPY app` layer differs between the two images; everything below is shared.
+
+| | Disk usage |
+|---|---|
+| Without sharing | 75 MB + 75 MB = **150 MB** |
+| With sharing | 75 MB + ~50 KB (only the new top layer) = **~75 MB** |
+
+This sharing also applies to `docker pull` — layers already present locally are never re-downloaded:
 
 ```
 $ docker pull myapp:1.1
@@ -361,7 +343,7 @@ Dive shows exactly which files each layer adds, modifies, or deletes — the mos
 
 ## 9. Dangling Layers and Cleanup
 
-When you rebuild an image with the same tag, the old layers become **dangling** — not referenced by any tag.
+When you rebuild an image with the same tag, the old layers become **dangling** — no tag points to them anymore, but they still take up disk space.
 
 ```bash
 docker images -a                        # show all layers incl. intermediate
@@ -375,41 +357,26 @@ docker system df                        # see total layer cache size
 
 ## 10. Best Practices Summary
 
-```
-DO                                  DON'T
-────────────────────────────────────────────────────────────────────────
-Put slow/stable steps early         Put COPY . . before RUN install
-(deps before source)
+| Do ✅ | Don't ❌ |
+|---|---|
+| Put slow/stable steps early (deps before source) | Put `COPY . .` before `RUN install` |
+| Combine related `RUN` commands: `RUN apt-get update && install && rm -rf /var/lib/apt/lists/*` | Create one `RUN` per `apt-get install` (doubles the layer count) |
+| Remove build artefacts in the **same** `RUN` step to keep the layer small | Install `gcc` in one layer and `rm` it in a later one — too late, it's already baked into the earlier layer |
+| Use multi-stage builds to exclude build tools from the final image | Ship your compiler and build tools in the production image |
+| Use `.dockerignore` to exclude `node_modules`, `.git`, `dist/`, `*.log` | `COPY . .` everything, bloating the build context |
+| Pin base image versions: `FROM python:3.12-slim` | `FROM python:latest` — unpredictable, breaks on new releases |
 
-Combine related RUN commands        Create one RUN per apt-get install
-RUN apt-get update && install       (doubles the layer count)
-  && rm -rf /var/lib/apt/lists/*
+### Why "remove it later" doesn't work
 
-Remove build artefacts in same      RUN apt-get install gcc           ← new layer
-RUN step to keep layer small        RUN gcc build.c                   ← new layer
-                                    RUN rm /usr/bin/gcc               ← too late!
-                                    (gcc is already baked into layer 2)
-
-Use multi-stage builds to           Ship your build tools and compiler
-exclude build tools from            in the final production image
-final image
-
-Use .dockerignore to exclude        COPY . . and include node_modules,
-unnecessary files                   .git, dist/, *.log in the context
-
-Pin base image versions             FROM python:latest  ← unpredictable
-FROM python:3.12-slim               (breaks when new version releases)
-```
-
-### Combining RUN Commands — the Right Way
+A common beginner mistake is installing a tool in one layer and deleting it in a later one. It doesn't shrink the image, because the tool is already permanently stored in the earlier layer — the delete just *hides* it in the merged view:
 
 ```dockerfile
-# BAD: 3 layers, gcc stays in the final image
+# BAD: 3 layers, gcc stays baked into layer 2 forever
 RUN apt-get update
 RUN apt-get install -y gcc
 RUN gcc -o /app/server server.c
 
-# GOOD: 1 layer, apt cache cleaned, gcc not in final layer
+# GOOD: 1 layer, apt cache cleaned, gcc removed within the same layer
 RUN apt-get update \
     && apt-get install -y --no-install-recommends gcc \
     && gcc -o /app/server server.c \
@@ -431,5 +398,5 @@ CMD ["/server"]
 ## Related
 
 - [Dockerfile reference](./dockerfile-reference.md) — every instruction explained
-- [Volumes — Union filesystem diagram](../04-volumes/README.md#why-containers-lose-data-the-union-filesystem) — how the writable layer fits into the storage model
-- [Multi-stage builds in cheatsheet](../cheatsheets/dockerfile.md#multi-stage-build-template)
+- [Volumes — Union filesystem](../04-volumes/README.md) — how the writable layer fits into the storage model
+- [Multi-stage builds in cheatsheet](../cheatsheets/dockerfile.md)

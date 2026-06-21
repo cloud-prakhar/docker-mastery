@@ -16,21 +16,17 @@ Docker is a platform for packaging applications and their dependencies into **co
 
 ### Docker vs Virtual Machine
 
-```
-VM:                          Docker Container:
-┌──────────────┐             ┌──────────────┐
-│  Application │             │  Application │
-├──────────────┤             ├──────────────┤
-│  Guest OS    │             │  Libs/Deps   │
-├──────────────┤             ├──────────────┤
-│  Hypervisor  │             │  Docker Engine│
-├──────────────┤             ├──────────────┤
-│  Host OS     │             │  Host OS     │
-└──────────────┘             └──────────────┘
-~GBs, minutes to start       ~MBs, seconds to start
+```mermaid
+flowchart TB
+    subgraph VM["Virtual Machine — ~GBs, minutes to start"]
+        VA["Application"] --> VG["Guest OS"] --> VH["Hypervisor"] --> VHost["Host OS"]
+    end
+    subgraph DC["Docker Container — ~MBs, seconds to start"]
+        DA["Application"] --> DL["Libs / Deps"] --> DE["Docker Engine"] --> DHost["Host OS"]
+    end
 ```
 
-Containers share the host kernel — no full OS per app.
+The key difference: a VM ships a whole **Guest OS** per app, while containers **share the host kernel** — no full OS per app. (Full deep dive: [virtualization-vs-containers.md](./virtualization-vs-containers.md).)
 
 ## Installation
 
@@ -54,18 +50,12 @@ docker run --rm hello-world
 
 ## How Docker Works
 
-```
-Dockerfile  ──build──►  Image  ──run──►  Container
-                          │
-                     docker push
-                          │
-                          ▼
-                       Registry
-                          │
-                     docker pull
-                          │
-                          ▼
-                   Image on another host
+```mermaid
+flowchart LR
+    DF["Dockerfile"] -->|"docker build"| IMG["Image"]
+    IMG -->|"docker run"| C["Container"]
+    IMG -->|"docker push"| REG["Registry"]
+    REG -->|"docker pull"| IMG2["Image on another host"]
 ```
 
 ## Your First Dockerfile

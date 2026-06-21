@@ -151,11 +151,13 @@ flask_app exited with code 1
 
 **Why it happens:** Flask started before Postgres finished initialising. `depends_on` with a healthcheck fixes this, but if the healthcheck is missing or the interval is too short, Flask wins the race.
 
-```
-Timeline:
-  t=0s   postgres container starts
-  t=0.5s flask container starts  ──► tries to connect ──► REFUSED
-  t=6s   postgres ready ✓  (too late)
+```mermaid
+flowchart TB
+    T0["t=0s — postgres container starts"]
+    T05["t=0.5s — flask container starts → tries to connect → ✗ REFUSED"]
+    T6["t=6s — postgres ready ✓ (too late)"]
+    T0 --> T05 --> T6
+    style T05 fill:#ffd9d9
 ```
 
 **Fix:** Ensure your Compose file has a healthcheck on the `postgres` service AND `condition: service_healthy` on `flask_app`:
@@ -451,13 +453,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf 
 
 **Why it happens:** This project binds to host port 80 by default. If your machine already has a system nginx (or any other service) listening on port 80, Docker Compose v2.20+ (which uses iptables NAT instead of docker-proxy) may not block start-up, but outbound `localhost:80` connections still reach the host process — not the container.
 
-```
-Host: system nginx listening on 0.0.0.0:80 (started before Docker)
-      │
-      ▼
-curl http://localhost:80  ──► loopback interface ──► host nginx (PID 218)
-                                                       responds with its own 404
-                                NOT routed to Docker container
+```mermaid
+flowchart TB
+    H["Host: system nginx listening on 0.0.0.0:80<br/>(started before Docker)"]
+    C["curl http://localhost:80"] --> LO["loopback interface"]
+    LO --> H
+    H --> R["host nginx (PID 218) responds with its own 404<br/>✗ NOT routed to the Docker container"]
+    style R fill:#ffd9d9
 ```
 
 **Debugging:**
@@ -503,9 +505,10 @@ nginx/1.25.x
 
 **Why it happens:** Nginx is proxying to `flask:5000` but Flask is not running or hasn't started yet.
 
-```
-Browser → Nginx → flask:5000  ──► connection refused
-                                  Flask not up yet (or crashed)
+```mermaid
+flowchart LR
+    B["Browser"] --> N["Nginx"] -->|"proxy to flask:5000"| F["✗ connection refused<br/>Flask not up yet (or crashed)"]
+    style F fill:#ffd9d9
 ```
 
 **Debugging:**
@@ -605,14 +608,13 @@ docker compose restart nginx
 
 This is the most common beginner confusion across all projects.
 
-```
-You edited app.py on the host
-       │
-       ▼
-docker compose up    ← did NOT rebuild the image
-       │
-       ▼
-Container runs OLD image layer (your edit is not there!)
+```mermaid
+flowchart TB
+    A["You edited app.py on the host"]
+    B["docker compose up<br/>← did NOT rebuild the image"]
+    C["Container runs the OLD image layer<br/>(your edit is not there!)"]
+    A --> B --> C
+    style C fill:#ffd9d9
 ```
 
 **Fix:**

@@ -28,12 +28,14 @@ Before attempting a project, make sure you've read the linked theory:
 
 Do them in order if you're learning sequentially. Each project introduces one new architectural pattern:
 
-```
-01 (single container + bind mount)
-  └─► 02 (add a database + healthcheck)
-        └─► 03 (add a cache + multi-stage build)
-              └─► 04 (official complex image + secrets)
-                    └─► 05 (full 3-tier with reverse proxy + network isolation)
+```mermaid
+flowchart TB
+    P1["01 — single container + bind mount"]
+    P2["02 — add a database + healthcheck"]
+    P3["03 — add a cache + multi-stage build"]
+    P4["04 — official complex image + secrets"]
+    P5["05 — full 3-tier: reverse proxy + network isolation"]
+    P1 --> P2 --> P3 --> P4 --> P5
 ```
 
 ## Troubleshooting Projects

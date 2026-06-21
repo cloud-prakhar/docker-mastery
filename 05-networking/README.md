@@ -6,25 +6,24 @@ Docker containers communicate through virtual networks managed by the Docker Eng
 
 A container runs as an **isolated process** with its own network namespace — from inside, it looks like a machine with only a loopback interface (`lo`). Without explicit networking, containers are dark islands that cannot reach the internet, your host, or each other.
 
+**Without networking** — each container is a dark island:
+
+```mermaid
+flowchart LR
+    A["App (blind)"]
+    D["DB (blind)"]
+    C["Cache (blind)"]
 ```
-Without networking:
 
-  ┌─────────┐    ┌─────────┐    ┌─────────┐
-  │  App    │    │   DB    │    │  Cache  │
-  │ (blind) │    │ (blind) │    │ (blind) │
-  └─────────┘    └─────────┘    └─────────┘
-  Can't talk to each other or to the internet.
+Can't talk to each other or to the internet.
 
-With a Docker network:
+**With a Docker network** — containers reach each other, and the host NATs them out to the internet:
 
-  ┌─────────┐    ┌─────────┐    ┌─────────┐
-  │   App   │◄──►│   DB    │    │  Cache  │
-  │         │◄──────────────────►         │
-  └────┬────┘    └─────────┘    └─────────┘
-       │
-       │ (via NAT through host)
-       ▼
-   Internet
+```mermaid
+flowchart LR
+    A["App"] <--> D["DB"]
+    A <--> C["Cache"]
+    A -->|"via NAT through host"| I["Internet"]
 ```
 
 Docker networking is built on two Linux kernel features you already saw in the theory section:

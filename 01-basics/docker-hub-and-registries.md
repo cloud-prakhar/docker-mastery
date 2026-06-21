@@ -8,13 +8,12 @@
 
 A container registry is a **remote storage and distribution system for Docker images**. Think of it like GitHub, but for images instead of source code.
 
-```
-Your machine                   Registry (e.g. Docker Hub)
-─────────────                  ──────────────────────────
-docker build →  local image    
-docker push  →──────────────►  stores image (by layer)
-docker pull  ◄──────────────── serves image (layer by layer)
-docker run   →  pulls if not cached, then starts container
+```mermaid
+flowchart LR
+    B["docker build<br/>→ local image"] --> M["Your machine"]
+    M -->|"docker push"| R["Registry (e.g. Docker Hub)<br/>stores image, layer by layer"]
+    R -->|"docker pull"| M
+    M -->|"docker run<br/>(pulls if not cached, then starts)"| C["running container"]
 ```
 
 Without a registry, sharing an image would require copying a tarball manually (`docker save` / `docker load`). Registries make images universally accessible.
@@ -27,16 +26,14 @@ Without a registry, sharing an image would require copying a tarball manually (`
 
 ### What Docker Hub provides
 
-```
-Docker Hub
-│
-├── Public images        Free to pull, anyone can access
-├── Private repositories Free tier: 1 private repo; paid: unlimited
-├── Automated builds     Connects to GitHub; rebuilds on push
-├── Webhooks             Notify external services on push
-├── Teams & Orgs         Access control for company accounts
-└── Image scanning       Basic vulnerability scanning (paid)
-```
+| Feature | What it gives you |
+|---|---|
+| **Public images** | Free to pull, anyone can access |
+| **Private repositories** | Free tier: 1 private repo; paid: unlimited |
+| **Automated builds** | Connects to GitHub; rebuilds on push |
+| **Webhooks** | Notify external services on push |
+| **Teams & Orgs** | Access control for company accounts |
+| **Image scanning** | Basic vulnerability scanning (paid) |
 
 ### Image categories on Docker Hub
 
@@ -62,47 +59,37 @@ Every Docker image has a fully qualified name. Docker fills in defaults when you
 
 ### Full Format
 
-```
-[REGISTRY_HOST/][NAMESPACE/]NAME[:TAG][@DIGEST]
-      │              │         │      │    │
-      │              │         │      │    └─ Optional: exact content hash
-      │              │         │      └─ Version label (default: latest)
-      │              │         └─ Image name
-      │              └─ User or organisation
-      └─ Registry hostname (default: docker.io)
-```
+The full name is `[REGISTRY_HOST/][NAMESPACE/]NAME[:TAG][@DIGEST]`. Each part:
+
+| Part | Meaning | Default if omitted |
+|---|---|---|
+| `REGISTRY_HOST` | Registry hostname | `docker.io` |
+| `NAMESPACE` | User or organisation | `library` (official images) |
+| `NAME` | Image name | *(required)* |
+| `TAG` | Version label | `latest` |
+| `DIGEST` | Exact content hash (`@sha256:…`) | *(optional)* |
 
 ### Examples decoded
 
-```
-nginx
-└─ expands to: docker.io/library/nginx:latest
-
-python:3.12-slim
-└─ expands to: docker.io/library/python:3.12-slim
-
-myuser/myapp:1.0
-└─ expands to: docker.io/myuser/myapp:1.0
-
-ghcr.io/myorg/myapp:v2.3.1
-└─ Registry:   ghcr.io  (GitHub Container Registry)
-   Namespace:  myorg
-   Name:       myapp
-   Tag:        v2.3.1
-```
+| You type | Docker expands it to |
+|---|---|
+| `nginx` | `docker.io/library/nginx:latest` |
+| `python:3.12-slim` | `docker.io/library/python:3.12-slim` |
+| `myuser/myapp:1.0` | `docker.io/myuser/myapp:1.0` |
+| `ghcr.io/myorg/myapp:v2.3.1` | registry `ghcr.io`, namespace `myorg`, name `myapp`, tag `v2.3.1` |
 
 ### Understanding Tags
 
 A **tag** is a mutable label pointing to an image. It can be moved to a new image at any time.
 
-```
-python:latest     ─► points to the newest Python release
-python:3.12       ─► points to the latest 3.12.x patch
-python:3.12.3     ─► points to exactly 3.12.3 (most stable)
-python:3.12-slim  ─► 3.12 on a minimal Debian base
-python:3.12-alpine─► 3.12 on Alpine Linux (~5x smaller)
-python:3-slim     ─► latest Python 3.x slim
-```
+| Tag | Points to |
+|---|---|
+| `python:latest` | the newest Python release |
+| `python:3.12` | the latest 3.12.x patch |
+| `python:3.12.3` | exactly 3.12.3 (most stable) |
+| `python:3.12-slim` | 3.12 on a minimal Debian base |
+| `python:3.12-alpine` | 3.12 on Alpine Linux (~5× smaller) |
+| `python:3-slim` | latest Python 3.x slim |
 
 **Common tag suffixes you'll see:**
 
@@ -166,24 +153,22 @@ docker images nginx
 
 ### What Happens During a Pull
 
+```mermaid
+flowchart TB
+    S1["1. Read the tag 'python:3.12-slim'<br/>→ expands to docker.io/library/python:3.12-slim"]
+    S2["2. Contact registry API<br/>GET …/v2/library/python/manifests/3.12-slim<br/>→ returns the list of layer digests"]
+    S3{"3. For each layer digest:<br/>in local cache?"}
+    S3 -->|yes| H["'Already exists' — skip download"]
+    S3 -->|no| D["download the layer (compressed tar)"]
+    S4["4. Decompress + store each layer,<br/>assemble the image manifest locally"]
+    S1 --> S2 --> S3
+    H --> S4
+    D --> S4
 ```
-docker pull python:3.12-slim
 
-Step 1: Docker reads the tag "python:3.12-slim"
-        Expands to: docker.io/library/python:3.12-slim
+Example terminal output:
 
-Step 2: Contacts registry API
-        GET https://registry-1.docker.io/v2/library/python/manifests/3.12-slim
-        Response: list of layer digests that make up this image
-
-Step 3: For each layer digest:
-        - Check local cache (/var/lib/docker/overlay2/)
-        - If cached → "Already exists" (skip download)
-        - If not → download the layer (compressed tar)
-
-Step 4: Decompress and store each layer
-        Assemble the image manifest locally
-
+```
 3.12-slim: Pulling from library/python
 a8b1c2d3e4f5: Already exists     ← Debian base (cached from another image)
 b9c0d1e2f3a4: Pull complete       ← Python runtime
@@ -257,24 +242,12 @@ docker run myusername/myapp:1.0
 
 ### Full Flow Diagram
 
-```
-Local machine                       Docker Hub
-─────────────                       ──────────
-docker build -t myapp:1.0 .
-       │
-       ▼
-  local image: myapp:1.0
-       │
-docker tag myapp:1.0 myusername/myapp:1.0
-       │
-       ▼
-  local image: myusername/myapp:1.0
-       │
-docker push myusername/myapp:1.0 ──────────────► hub.docker.com/r/myusername/myapp
-                                                            │
-                                              docker pull myusername/myapp:1.0
-                                                            │
-                                                   Colleague's machine
+```mermaid
+flowchart TB
+    A["docker build -t myapp:1.0 ."] --> B["local image: myapp:1.0"]
+    B -->|"docker tag myapp:1.0 myusername/myapp:1.0"| C["local image: myusername/myapp:1.0"]
+    C -->|"docker push myusername/myapp:1.0"| H["hub.docker.com/r/myusername/myapp"]
+    H -->|"docker pull myusername/myapp:1.0"| D["Colleague's machine"]
 ```
 
 ---
@@ -289,14 +262,12 @@ docker push myusername/myapp:1.0 ──────────────► h
 
 ### When to use each
 
-```
-Open source project   → Docker Hub (public image, community access)
-Company / startup     → AWS ECR or GCP Artifact Registry
-                          (sits next to your cloud infra, fast pulls)
-Regulated / air-gapped → Self-hosted Harbor inside your network
-GitHub-native team    → GitHub Container Registry (ghcr.io)
-                          (auth through GitHub tokens)
-```
+| Your situation | Best choice |
+|---|---|
+| Open source project | Docker Hub (public image, community access) |
+| Company / startup | AWS ECR or GCP Artifact Registry (sits next to your cloud infra, fast pulls) |
+| Regulated / air-gapped | Self-hosted Harbor inside your network |
+| GitHub-native team | GitHub Container Registry (`ghcr.io`) — auth through GitHub tokens |
 
 ---
 
@@ -394,14 +365,12 @@ Go to `hub.docker.com` and search. On each image page look for:
 
 ### Key things to check before using a community image
 
-```
-✓ Pull count > 1M  (widely used)
-✓ Recently updated  (active maintenance)
-✓ Dockerfile source linked  (transparent)
-✓ Minimal layers  (smaller attack surface)
-✗ Avoid: last updated 3+ years ago
-✗ Avoid: no linked source, no description
-```
+- ✅ Pull count > 1M (widely used)
+- ✅ Recently updated (active maintenance)
+- ✅ Dockerfile source linked (transparent)
+- ✅ Minimal layers (smaller attack surface)
+- ❌ Avoid: last updated 3+ years ago
+- ❌ Avoid: no linked source, no description
 
 ---
 
@@ -466,20 +435,18 @@ Every merge to `main` builds a new image and pushes it tagged with `latest` and 
 
 ## Summary
 
-```
-Concept           What to remember
-────────────────────────────────────────────────────────────────────────
-Registry          Remote server that stores and serves images
-Docker Hub        The default public registry (docker.io)
-Official Images   Audited, maintained images with no username prefix
-Tag               Mutable label (nginx:alpine, python:3.12-slim)
-Digest            Immutable SHA256 hash — use for reproducible builds
-docker pull       Download image layers from registry to local cache
-docker push       Upload local image layers to registry
-docker login      Authenticate with a registry
-Namespace         Your username or org (myuser/myapp)
-Rate limits       100 pulls/6h unauthenticated — log in in CI
-```
+| Concept | What to remember |
+|---|---|
+| Registry | Remote server that stores and serves images |
+| Docker Hub | The default public registry (`docker.io`) |
+| Official Images | Audited, maintained images with no username prefix |
+| Tag | Mutable label (`nginx:alpine`, `python:3.12-slim`) |
+| Digest | Immutable SHA256 hash — use for reproducible builds |
+| `docker pull` | Download image layers from registry to local cache |
+| `docker push` | Upload local image layers to registry |
+| `docker login` | Authenticate with a registry |
+| Namespace | Your username or org (`myuser/myapp`) |
+| Rate limits | 100 pulls/6h unauthenticated — log in in CI |
 
 ## Related
 

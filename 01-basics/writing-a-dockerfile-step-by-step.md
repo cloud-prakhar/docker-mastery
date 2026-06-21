@@ -10,8 +10,9 @@ This guide walks you through writing a Dockerfile **from a blank file to a worki
 
 A Dockerfile is a **recipe**. It's a plain text file (named exactly `Dockerfile`, no extension) that lists the steps Docker should follow to build an **image**. Docker reads it **top to bottom**, runs each step, and saves the result.
 
-```
-Dockerfile (recipe)  ──docker build──►  Image (frozen meal)  ──docker run──►  Container (meal being eaten)
+```mermaid
+flowchart LR
+    DF["Dockerfile<br/>(recipe)"] -->|"docker build"| IMG["Image<br/>(frozen meal)"] -->|"docker run"| C["Container<br/>(meal being eaten)"]
 ```
 
 - **Image** = the packaged result (your app + everything it needs to run).
@@ -36,14 +37,17 @@ When you run `docker build`, Docker:
 3. Repeats until the file ends.
 4. The stack of layers = your final image.
 
+```mermaid
+flowchart TB
+    CMD["CMD — what to run"]
+    COPY["COPY . . — your code"]
+    RUN["RUN install — your dependencies"]
+    WORKDIR["WORKDIR — where things live"]
+    FROM["FROM — the base (the bottom)"]
+    CMD --> COPY --> RUN --> WORKDIR --> FROM
 ```
-┌─────────────────────────┐  ← CMD        (what to run)
-├─────────────────────────┤  ← COPY . .   (your code)
-├─────────────────────────┤  ← RUN install (your dependencies)
-├─────────────────────────┤  ← WORKDIR    (where things live)
-├─────────────────────────┤  ← FROM       (the base — the bottom)
-└─────────────────────────┘
-```
+
+(Top = last instruction, bottom = the base image. Each instruction stacks a layer on the one below it.)
 
 Keep this picture in mind — it explains almost every "best practice" later.
 
@@ -63,12 +67,10 @@ FROM python:3.12-slim
 
 ### How to read an image name
 
-```
-python : 3.12-slim
-  │         │
-  │         └── tag: the version / variant
-  └── repository: the software
-```
+In `python:3.12-slim`:
+
+- `python` — the **repository** (the software)
+- `3.12-slim` — the **tag** (the version / variant)
 
 ### Which tag (variant) should you pick?
 
