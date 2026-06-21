@@ -97,6 +97,7 @@ docker run -p 8080:8080 my-app
 ## Files in This Section
 
 - [first-container.md](./first-container.md) — step-by-step walkthrough of your first container
+- [writing-a-dockerfile-step-by-step.md](./writing-a-dockerfile-step-by-step.md) — beginner-friendly step-by-step process for writing a Dockerfile, every option explained in plain language with the "why" behind each line
 - [dockerfile-reference.md](./dockerfile-reference.md) — every Dockerfile instruction explained
 - [image-layers.md](./image-layers.md) — what layers are, how caching works, overlay2, copy-on-write, and best practices
 - [docker-hub-and-registries.md](./docker-hub-and-registries.md) — Docker Hub, image naming, tags, pushing your first image, private registries, rate limits
