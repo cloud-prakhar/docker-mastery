@@ -62,7 +62,7 @@ Limitation: containers on the default bridge network **cannot resolve each other
 ```bash
 docker network create app-net
 docker run -d --name web --network app-net nginx:alpine
-docker run -d --name db  --network app-net postgres:16-alpine
+docker run -d --name db --network app-net -e POSTGRES_PASSWORD=<YourDBPassword> postgres:16-alpine
 
 # Containers can now reach each other by name:
 docker exec -it web ping db       # works!
